@@ -12,11 +12,11 @@ class JEPA(nn.Module):
 
     def __init__(
         self,
-        encoder,
-        predictor,
-        action_encoder,
-        projector=None,
-        pred_proj=None,
+        encoder, # ViT-Tiny 
+        predictor, # MLP
+        action_encoder, # Embedder
+        projector=None,  # ARPredictor
+        pred_proj=None, # MLP
     ):
         super().__init__()
 
@@ -62,7 +62,7 @@ class JEPA(nn.Module):
         """Rollout the model given an initial info dict and action sequence.
         pixels: (B, S, T, C, H, W)
         action_sequence: (B, S, T, action_dim)
-         - S is the number of action plan samples
+         - S is the number of action plan samples 候选动作数量
          - T is the time horizon
         """
 
@@ -109,7 +109,7 @@ class JEPA(nn.Module):
 
         return info
 
-    def criterion(self, info_dict: dict):
+    def criterion(self, info_dict: dict): # 计算Mean Squared Error
         """Compute the cost between predicted embeddings and goal embeddings."""
         pred_emb = info_dict["predicted_emb"]  # (B,S, T-1, dim)
         goal_emb = info_dict["goal_emb"]  # (B, S, T, dim)

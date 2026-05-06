@@ -1,8 +1,10 @@
+output_dir: C:/Users/RaymondZh/Desktop/github/le-wm/outputs
+
 defaults:
   - _self_
-  - data: pusht
+  - data: libero_goal
 
-output_model_name: lewm
+output_model_name: lewm_libero_goal
 subdir: ${hydra:job.id}
 
 num_workers: 6
@@ -35,8 +37,8 @@ optimizer:
 wandb:
   enabled: True
   config:
-    entity: lewm
-    project: lewm
+    entity: 934464091
+    project: lewm_libero_goal
     name: ${output_model_name}
     id: ${subdir}
     resume: allow

@@ -1,2 +1,6 @@
 __pycache__/
 outputs/
+.vscode/settings.json
+CLAUDE.md
+datasets/pusht.h5
+datasets/libero_goal.h5

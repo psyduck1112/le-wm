@@ -36,8 +36,8 @@ def get_episodes_length(dataset, episodes):
         lengths.append(np.max(step_idx[episode_idx == ep_id]) + 1)
     return np.array(lengths)
 
-
-def get_dataset(cfg, dataset_name):
+ 
+def get_dataset(cfg, dataset_name): # 拿数据集 
     dataset_path = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
     dataset = swm.data.HDF5Dataset(
         dataset_name,

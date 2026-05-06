@@ -1,0 +1,148 @@
+  第一阶段：准备初始数据                                                                    
+                                                                                            
+  H = info["pixels"].size(2)          # H = 3（初始给的帧数，不是图片高度）                 
+  B, S, T = action_sequence.shape[:3] # B=1, S=300, T=总动作长度                            
+                  
+  act_0, act_future = torch.split(action_sequence, [H, T-H], dim=2)
+  # act_0:     (B,S,3,action_dim)  ← 前3个动作，配合初始3帧
+  # act_future:(B,S,T-3,action_dim)← 未来的动作（这是300个候选不同的地方）
+
+  info["action"] = act_0  # 把初始动作放进去
+
+  第二阶段：编码初始3帧
+
+  _init = {k: v[:, 0] for k, v in info.items()}  # 取S维第0个（所有S共享同一初始状态）
+  _init = self.encode(_init)  # pixels→ViT→emb, action→Embedder→act_emb
+
+  # _init["emb"]     : (B, 3, 192)  ← e0, e1, e2
+  # _init["act_emb"] : (B, 3, D)    ← ae0, ae1, ae2
+
+  emb = _init["emb"].unsqueeze(1).expand(B, S, -1, -1)
+  # (B, S, 3, 192)  ← 复制给300个候选，大家起点相同
+
+  第三阶段：展平成大batch
+
+  emb        = rearrange(emb,        "b s ... -> (b s) ...")  # (B*S, 3, 192)
+  act        = rearrange(act_0,      "b s ... -> (b s) ...")  # (B*S, 3, action_dim)
+  act_future = rearrange(act_future, "b s ... -> (b s) ...")  # (B*S, T-3, action_dim)
+
+  此时（进循环之前）：
+  emb = [e0, e1, e2]     ← 来自encode初始pixels
+  act = [a0, a1, a2]     ← 来自act_0（action_sequence的前3个）
+
+  这就是你问的"哪里来的"——是encode阶段产生的。
+
+  第四阶段：自回归循环
+
+  HS = 3  # history_size
+  for t in range(n_steps):
+      act_emb = self.action_encoder(act)       # 编码当前所有动作
+      emb_trunc = emb[:, -HS:]                 # 取最近3帧emb
+      act_trunc = act_emb[:, -HS:]             # 取最近3帧act_emb
+      pred_emb  = self.predict(emb_trunc, act_trunc)[:, -1:]  # 预测下一帧
+      emb = torch.cat([emb, pred_emb], dim=1)  # 追加预测
+
+      next_act = act_future[:, t:t+1, :]       # 取下一个未来动作
+      act = torch.cat([act, next_act], dim=1)  # 追加
+
+  逐步变化：
+  初始:   emb=[e0,e1,e2]        act=[a0,a1,a2]
+  t=0后:  emb=[e0,e1,e2,p3]     act=[a0,a1,a2,a3]    ← a3来自act_future[0]
+  t=1后:  emb=[e0,e1,e2,p3,p4]  act=[a0,a1,a2,a3,a4] ← a4来自act_future[1]
+
+  t=1时取最近3帧:
+    emb[-3:] = [e1, e2, p3]       ← e0滑出窗口了
+    act[-3:] = [ae1, ae2, ae3]    ← 300个候选此时用不同的ae3，开始分叉！
+  分叉发生在第2步之后——前3步动作大家相同，从第4个动作（act_future）开始各走各的路
+
+  循环结束后还有一次 predict
+
+  for t in range(n_steps):
+      act_emb = self.action_encoder(act)
+      pred_emb = self.predict(emb[:,-3:], act_emb[:,-3:])[:,-1:]
+      emb = torch.cat([emb, pred_emb], dim=1)  # 追加预测帧
+
+      next_act = act_future[:, t:t+1, :]
+      act = torch.cat([act, next_act], dim=1)  # 追加下一个动作 ←
+  注意顺序：先预测，再追加动作
+
+  # 循环结束后，最后一个动作已经追加进去，但还没用它预测
+  act_emb = self.action_encoder(act)
+  pred_emb = self.predict(emb[:,-3:], act_emb[:,-3:])[:,-1:]
+  emb = torch.cat([emb, pred_emb], dim=1)
+
+
+
+
+维度变化
+ 展平之前（有 S 维）                                                  
+   
+  action_sequence: (B=1, S=300, T=5, action_dim=7)                     
+                                     ↓ split
+  act_0:      (1, 300, H=3, 7)  ← 前3个动作（配合初始3帧）             
+  act_future: (1, 300, 2,   7)  ← 后2个动作（300候选各自不同的部分）
+
+  初始 emb:   (1, 300, 3, 192)  ← 300个候选共享同一初始embedding
+
+  展平后（S 并入 B）
+
+  emb        = rearrange("b s ... -> (b s) ...")  # (300, 3, 192)
+  act        = rearrange(act_0, ...)               # (300, 3, 7)
+  act_future = rearrange(...)                      # (300, 2, 7)
+
+  现在 300 行并行跑，每行是一个候选。
+
+  ---
+  t=0（300行完全相同）
+
+  act:     (300, 3, 7)   ← 300行相同（act_0共享）
+                  ↓ action_encoder
+  act_emb: (300, 3, D)
+
+  emb[-3:]: (300, 3, 192) [e0,e1,e2]  ← 300行相同
+  act[-3:]: (300, 3, D)   [ae0,ae1,ae2] ← 300行相同
+
+  predict → (300, 1, 192) → p3  ← 300个p3完全一样
+
+  emb: (300, 4, 192)  [e0,e1,e2,p3]
+
+  next_act = act_future[:, 0:1]  (300, 1, 7)  ← 300行开始不同！
+  act: (300, 4, 7)  [a0,a1,a2, | a3_候选1 ]
+                                [ a3_候选2 ]
+                                [ ...      ]
+                                [ a3_候选300]
+
+  ---
+  t=1（300行开始分叉）
+
+  act: (300, 4, 7)  ← 第4列各不相同
+           ↓ action_encoder
+  act_emb: (300, 4, D)
+
+  emb[-3:]:  (300, 3, 192) [e1,e2,p3]       ← 还是相同（p3相同）
+  act_emb[-3:]: (300, 3, D) [ae1,ae2,ae3]   ←
+  300行不同！ae3由各自的a3编码得来
+
+  predict(emb_trunc, act_trunc) → (300, 1, 192)
+    候选1  → p4_1
+    候选2  → p4_2   ← 因为act_trunc不同，预测结果分叉
+    ...
+    候选300 → p4_300
+
+  emb: (300, 5, 192)  ← 各行p4已经不同
+
+  ---
+  criterion（打分）
+
+  predicted_emb: (300, T_pred, 192)
+                      取最后一帧[:, -1:]
+                 (300, 1, 192)
+                      ↓ MSE
+  goal_emb:      (1, 1, 192)  ← broadcast到300行
+
+  cost: (300,)  ← 每个候选一个标量分数
+
+  总结：300个候选共享初始 embedding，但 act_future 各不相同。展平后 300
+   行并行过 predict，act_future 第一个动作追加后 act_emb
+  开始分叉，后续每步预测出不同的 p，最终 criterion 给每行打一个 MSE
+  分数。
