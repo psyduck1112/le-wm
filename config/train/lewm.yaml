@@ -1,9 +1,8 @@
-output_dir: C:/Users/RaymondZh/Desktop/github/le-wm/outputs
-
 defaults:
   - _self_
   - data: libero_goal
 
+output_dir: C:/Users/RaymondZh/Desktop/github/le-wm/outputs
 output_model_name: lewm_libero_goal
 subdir: ${hydra:job.id}
 
