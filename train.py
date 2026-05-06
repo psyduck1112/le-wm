@@ -51,7 +51,7 @@ def run(cfg):
     ##       dataset       ##
     #########################
 
-    dataset = swm.data.HDF5Dataset(**cfg.data.dataset, transform=None)
+    dataset = swm.data.HDF5Dataset(**cfg.data.dataset, transform=None) # 读取数据
     transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
     
     with open_dict(cfg):
@@ -89,7 +89,7 @@ def run(cfg):
 
     hidden_dim = encoder.config.hidden_size
     embed_dim = cfg.wm.get("embed_dim", hidden_dim)
-    effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim
+    effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim # 5帧动作拼接
 
     predictor = ARPredictor(
         num_frames=cfg.wm.history_size,
@@ -145,7 +145,7 @@ def run(cfg):
     ##########################
 
     run_id = cfg.get("subdir") or ""
-    run_dir = Path(swm.data.utils.get_cache_dir(), run_id)
+    run_dir = Path(cfg.get("output_dir", swm.data.utils.get_cache_dir()), run_id)
 
     logger = None
     if cfg.wandb.enabled:
