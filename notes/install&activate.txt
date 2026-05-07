@@ -5,6 +5,8 @@ source /root/autodl-tmp/envs/lewm/bin/activate
 把 uv 虚拟环境创建在数据盘 /root/autodl-tmp/ 而不是默认的 /root/le-wm/.venv。
 好处是换卡后环境还在，不需要重新装包。代码在系统盘 /root/le-wm，环境在数据盘 /root/autodl-tmp/envs/lewm，分开存放。
 
+autodl学术加速：source /etc/network_turbo           取消：unset http_proxy && unset https_proxy
+
 **LeWM 环境配置踩坑总结**
 
 ---

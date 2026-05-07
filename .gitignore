@@ -5,3 +5,7 @@ CLAUDE.md
 datasets/pusht.h5
 datasets/libero_goal.h5
 wandb/
+requirements_frozen.txt
+lewm_libero_goal/
+environment.json
+.gitignore
