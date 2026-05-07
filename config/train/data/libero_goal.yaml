@@ -1,6 +1,6 @@
 dataset:
   num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
-  cache_dir: C:/Users/RaymondZh/Desktop/github/le-wm/datasets
+  cache_dir: /root/autodl-tmp/stable-wm
   frameskip: 1
   name: libero_goal
   keys_to_load:

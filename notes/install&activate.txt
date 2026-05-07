@@ -1,0 +1,102 @@
+source /root/autodl-tmp/envs/lewm/bin/activate
+
+~/.bashrc 是每次打开终端时自动执行的脚本，写进去之后每次登录服务器都会自动激活 lewm 环境，不需要手动 source。
+
+把 uv 虚拟环境创建在数据盘 /root/autodl-tmp/ 而不是默认的 /root/le-wm/.venv。
+好处是换卡后环境还在，不需要重新装包。代码在系统盘 /root/le-wm，环境在数据盘 /root/autodl-tmp/envs/lewm，分开存放。
+
+**LeWM 环境配置踩坑总结**
+
+---
+
+**1. gym==0.21 编译失败**
+- 原因：新版 setuptools 与 gym==0.21 的 setup.py 不兼容
+- 解决：先降级 setuptools，再用 `--no-build-isolation` 安装
+```bash
+pip install "setuptools==65.7.0"
+pip install "gym==0.21.0" --no-build-isolation
+```
+
+---
+
+**2. stable-pretraining 新版没有 vit_hf**
+- 原因：新版把 `vit_hf` 改成了 `from_timm`，接口不兼容
+- 解决：降级到 0.1.4
+```bash
+pip install "stable-pretraining==0.1.4"
+```
+
+---
+
+**3. HuggingFace xet 协议 401**
+- 原因：国内服务器无法访问 `cas-server.xethub.hf.co`
+- 解决：使用国内镜像
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+---
+
+**4. 数据集解压 No space left**
+- 原因：Python 解压时临时文件写入系统 `/tmp`（空间小），不是数据盘
+- 解决：用 stream_reader 分块读写，不产生临时文件
+```bash
+python -c "
+import zstandard as zstd
+dctx = zstd.ZstdDecompressor()
+with open('xxx.h5.zst', 'rb') as f_in:
+    with open('xxx.h5', 'wb') as f_out:
+        reader = dctx.stream_reader(f_in)
+        while True:
+            chunk = reader.read(65536)
+            if not chunk:
+                break
+            f_out.write(chunk)
+"
+```
+
+---
+
+**5. stable-worldmodel 包装进 conda base，venv 无效**
+- 原因：用 pip 安装时装进了 conda base，venv 里没有
+- 解决：把 venv 创建在数据盘，统一用一个环境
+```bash
+uv venv /root/autodl-tmp/envs/lewm --python=3.10
+```
+
+---
+
+**6. convert.py 的 _target_ 字段报错**
+- 原因：新版 config.json 是 Hydra 格式，含 `_target_` 字段，直接 `**dict` 传参会报错
+- 解决：过滤掉 `_target_`
+```python
+{k: v for k, v in cfg["predictor"].items() if k != "_target_"}
+```
+
+---
+
+**7. 缺少隐式依赖**
+- 原因：`stable-worldmodel[train,env]` 用 `--no-deps` 安装后缺少依赖，且部分包未列为显式依赖
+- 需要手动补装：
+```bash
+pip install matplotlib datasets transformers lightning scikit-learn zstandard huggingface_hub hf-xet
+```
+
+---
+
+**8. wandb entity 类型错误**
+- 原因：yaml 里数字 entity 被解析为 int，wandb 期望 string
+- 解决：加引号
+```yaml
+entity: "934464091"
+```
+
+---
+
+**9. 数据和环境换卡丢失**
+- 原因：系统盘重置，`/root` 下的内容不保留
+- 解决：环境和数据都放数据盘，代码用软链接
+```bash
+uv venv /root/autodl-tmp/envs/lewm --python=3.10
+ln -s /root/autodl-tmp/stable-wm ~/.stable-wm
+```
