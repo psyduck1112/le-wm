@@ -1,7 +1,7 @@
 import numpy as np
 import gymnasium
 import h5py
-from liberogymwrapper.libero_env import LiberoGoalEnv as _LiberoGoalEnv
+from liberogymwrapper.v0 import LiberoGoalEnv as _LiberoGoalEnv
 
 
 class LiberoGoalLEwMEnv(_LiberoGoalEnv):
@@ -42,11 +42,13 @@ class LiberoGoalLEwMEnv(_LiberoGoalEnv):
         idx = np.random.randint(len(self._goal_images))
         self._goal_image = self._goal_images[idx]  # (H,W,3) uint8
         info["goal"] = self._goal_image
+        info["init_state_id"] = 0
         return obs, info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = super().step(action)
-        info["goal"] = self._goal_image  # keep same goal throughout episode
+        info["goal"] = self._goal_image
+        info["init_state_id"] = 0  # keep same goal throughout episode
         return obs, reward, terminated, truncated, info
 
 

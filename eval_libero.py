@@ -79,6 +79,18 @@ def run(cfg: DictConfig):
 
     print(metrics)
 
+    # video recording
+    video_dir = Path(__file__).parent / "videos" / f"task_{cfg.world.task_id}_{policy_path}"
+    video_dir.mkdir(parents=True, exist_ok=True)
+    world.record_video(
+        video_path=video_dir,
+        max_steps=600,
+        fps=30,
+        viewname="pixels",
+        seed=cfg.seed,
+    )
+    print(f"Videos saved to {video_dir}")
+
     results_path = Path(__file__).parent / cfg.output.filename
     with results_path.open("a") as f:
         f.write("\n==== CONFIG ====\n")
@@ -90,3 +102,4 @@ def run(cfg: DictConfig):
 
 if __name__ == "__main__":
     run()
+
