@@ -1,0 +1,166 @@
+                                                                                                 MegaWrapper 的工作流：                                                                                  
+  LiberoEnv                                                                                               
+    → AddPixelsWrapper     调用 env.render() 获取图像，存为 info["pixels"]                                
+    → EverythingToInfoWrapper  把 obs dict 所有 key 移进 info                                             
+    → EnsureInfoKeysWrapper    检查 pixels key 存在
+    → ResizeGoalWrapper        处理 info["goal"]（如果有）
+    → StackedWrapper           对所有 key 做 history 堆叠（自动，history_size=3）
+
+  libero env 需要满足的条件：
+  1. render() → 返回 (H, W, 3) uint8 的 agentview 图像（给 AddPixelsWrapper 用）
+  2. reset() 的 info 里包含 goal（给 WorldModelPolicy 用）
+  3. terminated=True 当任务成功（给 evaluate() 判断成功用）
+
+# 结构
+  MuJoCo                                                                                                
+    ↑ 物理引擎，管理关节、碰撞、渲染
+  robosuite
+    ↑ 机器人仿真框架，封装 MuJoCo，提供 Panda 机械臂、相机、动作空间
+  libero（OffScreenRenderEnv）
+    ↑ 在 robosuite 上加了任务定义（BDDL文件）和初始状态管理
+  LiberoGymWrapper（LiberoGoalEnv）
+    ↑ 把 libero 包装成 gymnasium.Env 接口
+  我们的 LiberoGoalLEwMEnv
+    ↑ 加 render() 和 goal 图像
+  MegaWrapper（swm 内部）
+    ↑ 加 pixels key、history 堆叠
+  swm.World
+    ↑ 管理多个并行 env、eval 循环
+
+  ---
+  需要新写的文件
+
+  le-wm/
+    envs/
+      __init__.py
+      libero_env.py        ← 核心：gymnasium wrapper
+    config/eval/
+      libero_goal.yaml     ← eval 配置
+    eval_libero.py         ← eval 入口脚本
+
+  ---
+  第一步：envs/libero_env.py
+
+  这是最核心的文件，包含三件事：
+
+  ① LiberoGoalLEwMEnv 类
+
+  继承 LiberoGymWrapper 的 LiberoGoalEnv，额外做：
+
+  def render(self):
+      # 返回 agentview_image，shape (H,W,3) uint8
+      # AddPixelsWrapper 会调这个来生成 pixels
+
+  def reset(self, seed=None, options=None):
+      obs, info = super().reset(seed, options)
+      # 从 demo 数据加载目标图像，放入 info["goal"]
+      info["goal"] = self._load_goal_image()   # (H,W,3) uint8
+      return obs, info
+
+  def step(self, action):
+      obs, reward, terminated, truncated, info = super().step(action)
+      info["goal"] = self._goal_image   # 每步保持 goal 不变
+      return obs, reward, terminated, truncated, info
+
+  ② Goal 图像来源
+
+  从 libero 官方 demo HDF5 文件取每个 task 最后一帧：
+  def _load_goal_image(self):
+      # 读 /root/autodl-tmp/libero_data/libero_goal/<task>.hdf5
+      # 取最后一个 demo 的最后一帧 agentview 图像
+
+  ③ 注册到 gymnasium
+
+  gymnasium.register(
+      id="libero-goal-lewm-v0",
+      entry_point="envs.libero_env:LiberoGoalLEwMEnv",
+      max_episode_steps=600,
+  )
+
+  ---
+  第二步：config/eval/libero_goal.yaml
+
+  world:
+    env_name: libero-goal-lewm-v0
+    num_envs: 1
+    history_size: 3        # 和训练一致
+    frame_skip: 1
+    max_episode_steps: 600
+    task_id: 0             # 0-9，libero_goal 共10个task
+
+  eval:
+    num_eval: 20           # 每个task跑多少次
+    dataset_name: libero_goal   # 用于归一化统计
+
+  dataset:
+    keys_to_cache:
+      - action
+      - proprio
+
+  plan_config:
+    horizon: 5
+    action_block: 1
+
+  solver:
+    _target_: stable_worldmodel.solver.CEMSolver
+    ...
+
+  policy: /path/to/checkpoint
+
+  ---
+  第三步：eval_libero.py
+
+  基本照抄 eval.py，主要改两处：
+
+  # 1. 导入注册
+  import envs  # 触发 gymnasium.register
+
+  # 2. 用 evaluate() 而不是 evaluate_from_dataset()
+  #    因为 libero task 有自己的成功判断，不依赖数据集目标帧
+  metrics = world.evaluate(
+      episodes=cfg.eval.num_eval,
+      seed=cfg.seed,
+  )
+
+  归一化参数（action/proprio 的均值方差）仍然从训练数据集计算，这部分直接复用 eval.py。
+
+  ---
+  执行顺序
+
+  执行顺序
+
+  ① 本地写 envs/libero_env.py（不涉及仿真，可以写完）
+  ② 本地写 config/eval/libero_goal.yaml
+  ③ 本地写 eval_libero.py
+  #    因为 libero task 有自己的成功判断，不依赖数据集目标帧
+  metrics = world.evaluate(
+      episodes=cfg.eval.num_eval,
+      seed=cfg.seed,
+  )
+
+  归一化参数（action/proprio 的均值方差）仍然从训练数据集计算，这部分直接复用 eval.py。
+
+  ---
+  执行顺序
+
+  ① 本地写 envs/libero_env.py（不涉及仿真，可以写完）
+  ② 本地写 config/eval/libero_goal.yaml
+  ③ 本地写 eval_libero.py
+  ④ 服务器装 LIBERO + LiberoGymWrapper
+  ⑤ 服务器下载 libero_goal demo HDF5（取 goal 图像用）
+  ⑥ 推代码到服务器，跑 eval
+
+  ---
+  最大风险点
+
+  ┌───────────────────────┬─────────────────────────────────┬─────────────────────────────────────┐
+  │         风险          │              说明               │                应对                 │
+  ├───────────────────────┼─────────────────────────────────┼─────────────────────────────────────┤
+  │ render() 格式         │ AddPixelsWrapper 期望 HWC uint8 │ LiberoGymWrapper 图像是 CHW，需转置 │
+  ├───────────────────────┼─────────────────────────────────┼─────────────────────────────────────┤
+  │ goal 图像格式         │ ResizeGoalWrapper 期望 HWC      │ 同上，注意转换                      │
+  ├───────────────────────┼─────────────────────────────────┼─────────────────────────────────────┤
+  │ libero demo HDF5 格式 │ 读取方式需要确认                │ 先用 h5py 探查一下结构              │
+  ├───────────────────────┼─────────────────────────────────┼─────────────────────────────────────┤
+  │ 服务器 MuJoCo         │ 容器可能无 EGL 显示             │ 设置 MUJOCO_GL=egl                  │
+  └───────────────────────┴─────────────────────────────────┴─────────────────────────────────────┘
