@@ -9,3 +9,5 @@ requirements_frozen.txt
 lewm_libero_goal/
 environment.json
 .gitignore
+environment_v1.json
+requirements_frozen_v1.txt
