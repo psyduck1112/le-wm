@@ -1,0 +1,19 @@
+| 运行 | num_samples | n_steps | topk | batch_size | receding_horizon | num_envs     | CEM时间/step | success_rate | 备注 |
+|---    |---         |---      |---   |---         |---               |---           |---           |---           |---|
+| 1     | 300        | 30      | 30   | 1          | 5                | 1            | ~13s         | 0.0          | 基础配置，串行慢 |
+| 2     | 10         | 5       | 3    | 1          | 5                | 1            | ~0.17s       | 0.0          | 参数太弱 |
+| 3     | 10         | 5       | 3    | 1          | 5                | 1            | ~0.17s       | 0.0          | 同上重复 |
+| 4     | 300        | 30      | 30   | 300        | 5                | 1            | ~0.14s       | 0.0          | 最优速度，batch并行生效 |
+| 5     | 300        | 30      | 30   | 300        | 5                | 4            | 崩溃         | -            | jepa.py expand bug |
+| 6     | 10         | 10      | 10   | 1          | 5                | 1            | ~13s         | 未完成       | topk=num_samples，CEM失效 |
+
+MUJOCO_GL=egl EGL_DEVICE_ID=0 python eval_libero.py \
+world.demo_hdf5_path=/root/autodl-tmp/stable-wm/libero_goal.h5 \
+world.task_id=0 \
+eval.num_eval=1 \
+solver.num_samples=300 \
+solver.n_steps=30 \
+solver.topk=30 \
+solver.batch_size=300 \
+plan_config.horizon=7 \
+plan_config.receding_horizon=1
