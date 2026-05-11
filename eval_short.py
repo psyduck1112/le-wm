@@ -95,12 +95,14 @@ def run(cfg: DictConfig):
     for i, gi in enumerate(goal_indices):
         gi = int(gi)
         # monkey-patch: pool of 1 => env.reset() always picks this goal
-        world.envs[0].unwrapped._goal_images = [goals[gi]]
+        world.envs.env.envs[0].unwrapped._goal_images = [goals[gi]]
         # save goal frame for visual inspection
         Image.fromarray(goals[gi]).save(out_dir / f"goal_{i:03d}_demo{gi:03d}.png")
-        # record video
+        # record video (record_video expects an existing directory)
+        ep_dir = out_dir / f"ep_{i:03d}"
+        ep_dir.mkdir(exist_ok=True)
         world.record_video(
-            video_path=out_dir / f"ep_{i:03d}",
+            video_path=ep_dir,
             max_steps=cfg.eval.max_steps,
             fps=30,
             viewname="pixels",
@@ -113,3 +115,4 @@ def run(cfg: DictConfig):
 
 if __name__ == "__main__":
     run()
+
