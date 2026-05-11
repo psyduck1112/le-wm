@@ -42,14 +42,17 @@ def get_normalization(cfg):
     return process
 
 
-def load_short_goals(hdf5_path: str, K: int) -> list[np.ndarray]:
-    """Load frame[K] of each demo as a short-horizon goal."""
+def load_short_goals(hdf5_path: str, K: int, task_id: int) -> list[np.ndarray]:
+    """Load frame[K] of each demo from task_id as a short-horizon goal."""
     goals = []
     with h5py.File(hdf5_path, "r") as f:
         offsets = f["ep_offset"][:]
         lengths = f["ep_len"][:]
+        task_indices = f["task_index"][:]
         pixels = f["pixels"]
-        for o, l in zip(offsets, lengths):
+        for o, l, t in zip(offsets, lengths, task_indices):
+            if t != task_id:
+                continue
             idx = min(K, l - 1)
             goals.append(pixels[o + idx])
     return goals
@@ -80,8 +83,8 @@ def run(cfg: DictConfig):
     world.set_policy(policy)
 
     # load short-horizon goal pool from HDF5
-    goals = load_short_goals(cfg.world.demo_hdf5_path, cfg.eval.goal_offset)
-    print(f"Loaded {len(goals)} goal candidates (frame {cfg.eval.goal_offset})")
+    goals = load_short_goals(cfg.world.demo_hdf5_path, cfg.eval.goal_offset, cfg.world.task_id)
+    print(f"Loaded {len(goals)} goal candidates for task {cfg.world.task_id} (frame {cfg.eval.goal_offset})")
 
     # set up output dir
     out_dir = Path(__file__).parent / "videos" / f"short_off{cfg.eval.goal_offset}_task{cfg.world.task_id}"
