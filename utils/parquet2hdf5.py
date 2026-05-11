@@ -19,13 +19,14 @@ df = df.sort_values(["episode_index", "frame_index"]).reset_index(drop=True) # �
 
 ep_lengths = df.groupby("episode_index")["frame_index"].count().values # 按照epi_idx分组，返回groupby对
 """
-episode_index   
+episode_index
   0      270
   1      268
   2      265
   3      271
 """
 ep_offsets = np.concatenate([[0], np.cumsum(ep_lengths)[:-1]])
+task_indices = df.groupby("episode_index")["task_index"].first().values.astype(np.int32)
 print(f"Episodes: {len(ep_lengths)}, frames: {ep_lengths.sum()}")
 
 pixels = [] 
@@ -40,10 +41,11 @@ proprios = np.stack(df["observation.state"].values).astype(np.float32)
 print(f"actions shape: {actions.shape}")                                                          
 print(f"proprios shape: {proprios.shape}") 
 
-with h5py.File(out_path, "w") as f:                                                               
-      f.create_dataset("ep_len",    data=ep_lengths)
-      f.create_dataset("ep_offset", data=ep_offsets)                                                
-      f.create_dataset("pixels",    data=pixels,   chunks=True)
-      f.create_dataset("action",    data=actions)
-      f.create_dataset("proprio",   data=proprios)
+with h5py.File(out_path, "w") as f:
+      f.create_dataset("ep_len",        data=ep_lengths)
+      f.create_dataset("ep_offset",     data=ep_offsets)
+      f.create_dataset("task_index",    data=task_indices)
+      f.create_dataset("pixels",        data=pixels,   chunks=True)
+      f.create_dataset("action",        data=actions)
+      f.create_dataset("proprio",       data=proprios)
 print(f"Saved to {out_path}")

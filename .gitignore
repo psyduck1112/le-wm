@@ -12,3 +12,4 @@ environment.json
 environment_v1.json
 requirements_frozen_v1.txt
 videos/
+datasets/
