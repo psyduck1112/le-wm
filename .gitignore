@@ -11,3 +11,4 @@ environment.json
 .gitignore
 environment_v1.json
 requirements_frozen_v1.txt
+videos/

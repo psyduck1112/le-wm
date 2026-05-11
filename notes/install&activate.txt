@@ -102,3 +102,15 @@ entity: "934464091"
 uv venv /root/autodl-tmp/envs/lewm --python=3.10
 ln -s /root/autodl-tmp/stable-wm ~/.stable-wm
 ```
+
+  cd /root/le-wm && MUJOCO_GL=egl
+  EGL_DEVICE_ID=0 python -c "
+  import envs, gymnasium, numpy as np
+  env = gymnasium.make('libero-goal-lewm-v0', demo_hdf5_path='/root/autodl-tmp/stable-wm/libero_goal.h5', task_id=0)
+  o1, _ = env.reset(seed=42)
+  o2, _ = env.reset(seed=42)
+  o3, _ = env.reset(seed=43)
+  img = lambda o: o['agentview_image'] if isinstance(o, dict) else o
+  print('seed42 vs seed42:', np.allclose(img(o1), img(o2)))
+  print('seed42 vs seed43:', np.allclose(img(o1), img(o3)))
+  "

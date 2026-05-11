@@ -7,7 +7,7 @@
 | 5     | 300        | 30      | 30   | 300        | 5                | 4            | 崩溃         | -            | jepa.py expand bug |
 | 6     | 10         | 10      | 10   | 1          | 5                | 1            | ~13s         | 未完成       | topk=num_samples，CEM失效 |
 
-MUJOCO_GL=egl EGL_DEVICE_ID=0 python eval_libero.py \
+MUJOCO_GL=egl EGL_DEVICE_ID=0 python eval_short.py \
 world.demo_hdf5_path=/root/autodl-tmp/stable-wm/libero_goal.h5 \
 world.task_id=0 \
 eval.num_eval=1 \
