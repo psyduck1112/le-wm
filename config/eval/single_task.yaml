@@ -10,7 +10,7 @@ world:
   history_size: 3
   frame_skip: 1
   goal_conditioned: True
-  demo_hdf5_path: /root/autodl-tmp/stable-wm/open_drawer.hdf5
+  demo_hdf5_path: /root/autodl-tmp/LIBERO/datasets/libero_goal/open_drawer.hdf5
   bddl_file_name: null
   camera_heights: 128
   camera_widths: 128
@@ -23,7 +23,7 @@ dataset:
     - proprio
 
 seed: 42
-policy: /root/autodl-tmp/stable-wm/outputs/lewm_open_drawer_epoch_100
+policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97 
 
 plan_config:
   horizon: 7
