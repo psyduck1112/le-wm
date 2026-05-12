@@ -6,8 +6,8 @@ import h5py
 from PIL import Image
 from pathlib import Path
 
-src_dir = Path("/root/autodl-tmp/stable-wm/libero_goal_image/data")
-out_path = Path("/root/autodl-tmp/stable-wm/libero_goal.h5")
+src_dir = Path(r"C:\Users\RaymondZh\Desktop\github\le-wm\datasets\libero_goal_image\data\chunk-000")
+out_path = Path(r"C:\Users\RaymondZh\Desktop\github\le-wm\datasets\libero_goal.h5")
 
 files = sorted(glob.glob(str(src_dir/ "**/*.parquet"), recursive=True)) # ** 匹配任意层级的目录，* 匹配任意文件名
 print(f"found {len(files)} parquet files")
