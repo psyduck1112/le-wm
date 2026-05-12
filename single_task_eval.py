@@ -128,6 +128,8 @@ class SingleTaskDemoEnv(gymnasium.Env):
         super().__init__()
         self.demo_hdf5_path = demo_hdf5_path
         self.bddl_file_name = infer_bddl_file(demo_hdf5_path, bddl_file_name)
+        self.camera_heights = int(camera_heights)
+        self.camera_widths = int(camera_widths)
         self.goal_offset = goal_offset
         self.proprio_key = proprio_key
         self._eval_demo_id = 0
@@ -139,11 +141,20 @@ class SingleTaskDemoEnv(gymnasium.Env):
 
         self.env = OffScreenRenderEnv(
             bddl_file_name=self.bddl_file_name,
-            camera_heights=camera_heights,
-            camera_widths=camera_widths,
+            camera_heights=self.camera_heights,
+            camera_widths=self.camera_widths,
         )
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(7,), dtype=np.float32)
-        self.observation_space = spaces.Dict({})
+        self.observation_space = spaces.Dict(
+            {
+                "agentview_image": spaces.Box(
+                    low=0,
+                    high=255,
+                    shape=(self.camera_heights, self.camera_widths, 3),
+                    dtype=np.uint8,
+                )
+            }
+        )
 
     def set_eval_demo(self, demo_id: int, goal_offset: int | None = None):
         self._eval_demo_id = int(demo_id)
@@ -198,7 +209,7 @@ class SingleTaskDemoEnv(gymnasium.Env):
 
     def render(self):
         if self._last_obs is None:
-            return np.zeros((128, 128, 3), dtype=np.uint8)
+            return np.zeros((self.camera_heights, self.camera_widths, 3), dtype=np.uint8)
         return _as_hwc_uint8(self._last_obs["agentview_image"])
 
     def close(self):
