@@ -114,3 +114,8 @@ ln -s /root/autodl-tmp/stable-wm ~/.stable-wm
   print('seed42 vs seed42:', np.allclose(img(o1), img(o2)))
   print('seed42 vs seed43:', np.allclose(img(o1), img(o3)))
   "
+
+MUJOCO_GL=egl EGL_DEVICE_ID=0 python single_task_eval.py \
+    eval.num_eval=5 \
+    eval.goal_offset=100 \
+    eval.max_steps=50
