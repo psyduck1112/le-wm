@@ -43,6 +43,13 @@ def _as_hwc_uint8(image):
     return image
 
 
+def _flip_opengl(image):
+    # LIBERO stores agentview in OpenGL convention (origin at bottom-left).
+    # Training pixels (LeRobot JPEG) are top-left origin, so flip vertically here
+    # to match training distribution and to render right-side up.
+    return image[::-1].copy()
+
+
 def _demo_sort_key(name: str):
     if name.startswith("demo_"):
         return int(name.split("_")[-1])
@@ -152,13 +159,13 @@ class SingleTaskDemoEnv(gymnasium.Env):
             states = demo["states"]
             init_state = states[0].astype(np.float64)
             goal_idx = min(self.goal_offset, states.shape[0] - 1)
-            goal = _as_hwc_uint8(demo["obs"]["agentview_rgb"][goal_idx])
-            init_pixels = _as_hwc_uint8(demo["obs"]["agentview_rgb"][0])
+            goal = _flip_opengl(_as_hwc_uint8(demo["obs"]["agentview_rgb"][goal_idx]))
+            init_pixels = _flip_opengl(_as_hwc_uint8(demo["obs"]["agentview_rgb"][0]))
         return demo_name, init_state, goal_idx, goal, init_pixels
 
     def _pack_obs(self, raw_obs):
         return {
-            "agentview_image": _as_hwc_uint8(raw_obs["agentview_image"]),
+            "agentview_image": _flip_opengl(_as_hwc_uint8(raw_obs["agentview_image"])),
             "proprio": _proprio_from_libero_obs(raw_obs),
         }
 
