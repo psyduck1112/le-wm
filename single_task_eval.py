@@ -16,11 +16,14 @@ from libero.libero import get_libero_path
 from libero.libero.envs import OffScreenRenderEnv
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image
+from robosuite.utils.transform_utils import quat2axisangle
 from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
 
 
-PROPRIO_DIM = 9  # concat(robot0_gripper_qpos[2], robot0_joint_pos[7]) — matches collect_libero
+# Matches LeRobot libero_goal_image observation.state layout (see utils/parquet2hdf5.py):
+# [eef_pos(3), eef_axis_angle(3), gripper_qpos(2)] = 8
+PROPRIO_DIM = 8
 
 
 def _decode_attr(value):
@@ -47,13 +50,11 @@ def _demo_sort_key(name: str):
 
 
 def _proprio_from_libero_obs(obs):
-    """Must match collect_libero.proprio_from_obs so eval uses training-format 9-D proprio."""
-    return np.concatenate(
-        [
-            np.asarray(obs["robot0_gripper_qpos"], dtype=np.float32).reshape(-1),
-            np.asarray(obs["robot0_joint_pos"], dtype=np.float32).reshape(-1),
-        ]
-    ).astype(np.float32)
+    """Match LeRobot libero_goal observation.state used by parquet2hdf5.py at training time."""
+    eef_pos = np.asarray(obs["robot0_eef_pos"], dtype=np.float32).reshape(-1)            # (3,)
+    eef_ori = quat2axisangle(np.asarray(obs["robot0_eef_quat"])).astype(np.float32)      # (3,)
+    gripper = np.asarray(obs["robot0_gripper_qpos"], dtype=np.float32).reshape(-1)       # (2,)
+    return np.concatenate([eef_pos, eef_ori, gripper])
 
 
 def infer_bddl_file(hdf5_path: str, override: str | None):
