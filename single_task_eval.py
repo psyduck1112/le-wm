@@ -20,6 +20,9 @@ from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
 
 
+PROPRIO_DIM = 9  # concat(robot0_gripper_qpos[2], robot0_joint_pos[7]) — matches collect_libero
+
+
 def _decode_attr(value):
     if isinstance(value, bytes):
         return value.decode("utf-8")
@@ -43,38 +46,14 @@ def _demo_sort_key(name: str):
     return name
 
 
-def _get_nested(group, key):
-    node = group
-    for part in key.split("/"):
-        node = node[part]
-    return node
-
-
-def get_proprio_from_demo(demo_group, proprio_key: str):
-    if proprio_key in demo_group:
-        return demo_group[proprio_key][:]
-    if proprio_key.startswith("obs/"):
-        return _get_nested(demo_group, proprio_key)[:]
-    obs = demo_group["obs"]
-    if "gripper_states" in obs and "joint_states" in obs:
-        return np.concatenate([obs["gripper_states"][:], obs["joint_states"][:]], axis=-1)
-    raise KeyError(
-        f"cannot find proprio key {proprio_key!r}; available demo keys: "
-        f"{list(demo_group.keys())}, obs keys: {list(obs.keys())}"
-    )
-
-
-def get_proprio_from_env_obs(obs):
-    if "robot_states" in obs:
-        return np.asarray(obs["robot_states"], dtype=np.float32).reshape(-1)
-    if "robot0_gripper_qpos" in obs and "robot0_joint_pos" in obs:
-        return np.concatenate(
-            [
-                np.asarray(obs["robot0_gripper_qpos"], dtype=np.float32).reshape(-1),
-                np.asarray(obs["robot0_joint_pos"], dtype=np.float32).reshape(-1),
-            ]
-        )
-    return None
+def _proprio_from_libero_obs(obs):
+    """Must match collect_libero.proprio_from_obs so eval uses training-format 9-D proprio."""
+    return np.concatenate(
+        [
+            np.asarray(obs["robot0_gripper_qpos"], dtype=np.float32).reshape(-1),
+            np.asarray(obs["robot0_joint_pos"], dtype=np.float32).reshape(-1),
+        ]
+    ).astype(np.float32)
 
 
 def infer_bddl_file(hdf5_path: str, override: str | None):
@@ -122,7 +101,6 @@ class SingleTaskDemoEnv(gymnasium.Env):
         camera_heights: int = 128,
         camera_widths: int = 128,
         goal_offset: int = 100,
-        proprio_key: str = "robot_states",
         **kwargs,
     ):
         super().__init__()
@@ -131,7 +109,6 @@ class SingleTaskDemoEnv(gymnasium.Env):
         self.camera_heights = int(camera_heights)
         self.camera_widths = int(camera_widths)
         self.goal_offset = goal_offset
-        self.proprio_key = proprio_key
         self._eval_demo_id = 0
         self._goal_image = None
         self._last_obs = None
@@ -152,7 +129,13 @@ class SingleTaskDemoEnv(gymnasium.Env):
                     high=255,
                     shape=(self.camera_heights, self.camera_widths, 3),
                     dtype=np.uint8,
-                )
+                ),
+                "proprio": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(PROPRIO_DIM,),
+                    dtype=np.float32,
+                ),
             }
         )
 
@@ -172,18 +155,20 @@ class SingleTaskDemoEnv(gymnasium.Env):
             init_pixels = _as_hwc_uint8(demo["obs"]["agentview_rgb"][0])
         return demo_name, init_state, goal_idx, goal, init_pixels
 
-    def _info(self, demo_name, demo_id, goal_idx, init_state, obs):
-        info = {
+    def _pack_obs(self, raw_obs):
+        return {
+            "agentview_image": _as_hwc_uint8(raw_obs["agentview_image"]),
+            "proprio": _proprio_from_libero_obs(raw_obs),
+        }
+
+    def _info(self, demo_name, demo_id, goal_idx, init_state):
+        return {
             "goal": self._goal_image,
             "init_state_id": int(demo_id),
             "demo_name": demo_name,
             "goal_frame_id": int(goal_idx),
             "mujoco_init_state": init_state,
         }
-        proprio = get_proprio_from_env_obs(obs)
-        if proprio is not None:
-            info["proprio"] = proprio
-        return info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -191,26 +176,23 @@ class SingleTaskDemoEnv(gymnasium.Env):
         demo_name, init_state, goal_idx, goal, _ = self._load_demo_reset_data(demo_id)
 
         self.env.reset()
-        obs = self.env.set_init_state(init_state)
-        self._last_obs = obs
+        raw_obs = self.env.set_init_state(init_state)
+        self._last_obs = self._pack_obs(raw_obs)
         self._goal_image = goal
-        return obs, self._info(demo_name, demo_id, goal_idx, init_state, obs)
+        return self._last_obs, self._info(demo_name, demo_id, goal_idx, init_state)
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(np.asarray(action, dtype=np.float32))
-        self._last_obs = obs
+        raw_obs, reward, done, info = self.env.step(np.asarray(action, dtype=np.float32))
+        self._last_obs = self._pack_obs(raw_obs)
         info = dict(info)
         info["goal"] = self._goal_image
         info["init_state_id"] = int(self._eval_demo_id)
-        proprio = get_proprio_from_env_obs(obs)
-        if proprio is not None:
-            info["proprio"] = proprio
-        return obs, reward, bool(done), False, info
+        return self._last_obs, reward, bool(done), False, info
 
     def render(self):
         if self._last_obs is None:
             return np.zeros((self.camera_heights, self.camera_widths, 3), dtype=np.uint8)
-        return _as_hwc_uint8(self._last_obs["agentview_image"])
+        return self._last_obs["agentview_image"]
 
     def close(self):
         self.env.close()
@@ -235,19 +217,20 @@ def img_transform(cfg):
 
 
 def get_normalization(cfg):
+    """Compute action/proprio μ/σ from the training HDF5 — must match training-time stats."""
+    dataset_path = Path(cfg.dataset.train_hdf5_path).parent
+    dataset = swm.data.HDF5Dataset(
+        cfg.eval.dataset_name,
+        keys_to_cache=cfg.dataset.keys_to_cache,
+        cache_dir=dataset_path,
+    )
     process = {}
-    with h5py.File(cfg.world.demo_hdf5_path, "r") as f:
-        demos = [f["data"][name] for name in sorted(f["data"].keys(), key=_demo_sort_key)]
-        actions = np.concatenate([demo["actions"][:] for demo in demos], axis=0)
-        proprios = np.concatenate(
-            [get_proprio_from_demo(demo, cfg.eval.proprio_key) for demo in demos], axis=0
-        )
-
-    for key, data in {"action": actions, "proprio": proprios}.items():
+    for col in cfg.dataset.keys_to_cache:
         scaler = preprocessing.StandardScaler()
-        data = data[~np.isnan(data).any(axis=1)]
-        scaler.fit(data)
-        process[key] = scaler
+        col_data = dataset.get_col_data(col)
+        col_data = col_data[~np.isnan(col_data).any(axis=1)]
+        scaler.fit(col_data)
+        process[col] = scaler
     return process
 
 
@@ -287,17 +270,20 @@ def run(cfg: DictConfig):
 
     out_dir = Path(__file__).parent / "videos" / cfg.eval.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
+    frames_dir = out_dir / "frames"
+    frames_dir.mkdir(exist_ok=True)
 
     summary = []
     for i, demo_id in enumerate(demo_ids):
         env.set_eval_demo(demo_id, cfg.eval.goal_offset)
         demo_name, init_state, goal_idx, goal, init_pixels = env._load_demo_reset_data(demo_id)
 
+        # Save reference frames to a sibling dir so record_video can't clobber them.
+        Image.fromarray(init_pixels).save(frames_dir / f"ep_{i:03d}_{demo_name}_initial.png")
+        Image.fromarray(goal).save(frames_dir / f"ep_{i:03d}_{demo_name}_goal_{goal_idx:03d}.png")
+
         ep_dir = out_dir / f"ep_{i:03d}_{demo_name}"
         ep_dir.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(init_pixels).save(ep_dir / "demo_initial.png")
-        Image.fromarray(goal).save(ep_dir / f"goal_frame_{goal_idx:03d}.png")
-
         world.record_video(
             video_path=ep_dir,
             max_steps=cfg.eval.max_steps,
@@ -322,7 +308,7 @@ def run(cfg: DictConfig):
             f,
             indent=2,
         )
-    print(f"\nSaved videos and same-episode goal checks to: {out_dir}")
+    print(f"\nSaved videos and reference frames to: {out_dir}")
 
 
 if __name__ == "__main__":
