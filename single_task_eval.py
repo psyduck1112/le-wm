@@ -162,33 +162,28 @@ class SingleTaskDemoEnv(gymnasium.Env):
             "proprio": _proprio_from_libero_obs(raw_obs),
         }
 
-    def _info(self, demo_name, demo_id, goal_idx, init_state):
+    def _info(self):
+        # swm wrapper asserts reset/step info have identical keys, so keep this minimal —
+        # mirror LiberoGoalLEwMEnv's contract (only goal + init_state_id).
         return {
             "goal": self._goal_image,
-            "init_state_id": int(demo_id),
-            "demo_name": demo_name,
-            "goal_frame_id": int(goal_idx),
-            "mujoco_init_state": init_state,
+            "init_state_id": int(self._eval_demo_id),
         }
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        demo_id = self._eval_demo_id
-        demo_name, init_state, goal_idx, goal, _ = self._load_demo_reset_data(demo_id)
+        _, init_state, _, goal, _ = self._load_demo_reset_data(self._eval_demo_id)
 
         self.env.reset()
         raw_obs = self.env.set_init_state(init_state)
         self._last_obs = self._pack_obs(raw_obs)
         self._goal_image = goal
-        return self._last_obs, self._info(demo_name, demo_id, goal_idx, init_state)
+        return self._last_obs, self._info()
 
     def step(self, action):
-        raw_obs, reward, done, info = self.env.step(np.asarray(action, dtype=np.float32))
+        raw_obs, reward, done, _ = self.env.step(np.asarray(action, dtype=np.float32))
         self._last_obs = self._pack_obs(raw_obs)
-        info = dict(info)
-        info["goal"] = self._goal_image
-        info["init_state_id"] = int(self._eval_demo_id)
-        return self._last_obs, reward, bool(done), False, info
+        return self._last_obs, reward, bool(done), False, self._info()
 
     def render(self):
         if self._last_obs is None:
