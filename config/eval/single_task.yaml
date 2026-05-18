@@ -23,7 +23,7 @@ dataset:
     - proprio
 
 seed: 42
-policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97 
+policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97
 
 plan_config:
   horizon: 7
