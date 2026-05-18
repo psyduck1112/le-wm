@@ -5,28 +5,95 @@
 
 ---
 
-## 0. 占位符约定
+## 0. 路径规划：**程序 / 环境 / 数据 三处分离**
 
-把下面这些变量替换成你自己的路径后再执行命令：
+把 **代码**、**Python 环境（venv）**、**数据集 + checkpoint** 放在**三个独立目录**里，互不嵌套。这样做的理由：
 
-| 变量 | 含义 | 示例 |
-|------|------|------|
-| `$REPO_DIR` | 项目代码目录 | `~/le-wm` |
-| `$ENV_HOME` | venv 所在父目录（**不要放进项目里**） | `~/envs` |
-| `$STABLEWM_HOME` | 数据 / checkpoint 存放位置（需要大磁盘） | `~/data/stable-wm` |
-| `$LIBERO_DIR` | LIBERO 源码克隆位置 | `~/data/LIBERO` |
+| 类别 | 体积 | 是否需要 git | 是否可重建 | 适合放在 |
+|------|------|--------------|------------|----------|
+| **程序代码** | 小（< 100 MB） | 是 | 是（重新 clone） | 系统盘 / home |
+| **Python 环境（venv）** | 中（5–10 GB） | 否，**绝不能进 git** | 是（重装一次） | 大盘 envs/ |
+| **数据 + checkpoint** | 大（数十 GB ~ TB） | 否，**绝不能进 git** | 否（重新下载/重新训练代价高） | 大盘 data/ |
 
-建议把这几行写进 `~/.bashrc`：
+三处分离的好处：
+- **代码可以频繁 `git clean` / 重新 clone** 而不会动到环境和数据
+- **环境出问题可以整体删掉重建**，不影响数据
+- **数据持久化**，跨项目 / 跨 venv 复用，不会被误删
+- **备份策略不同**：代码靠 git，环境靠 `uv pip freeze`，数据靠快照/对象存储
 
-```bash
-export REPO_DIR=$HOME/le-wm
-export ENV_HOME=$HOME/envs
-export STABLEWM_HOME=$HOME/data/stable-wm
-export LIBERO_DIR=$HOME/data/LIBERO
-export HF_ENDPOINT=https://hf-mirror.com   # 国内访问 HuggingFace 必加
+### 物理布局示意
+
+```
+$HOME/                            # 系统盘，小
+└── le-wm/                        # ← $REPO_DIR：代码（git 管理）
+
+/data/                            # 大盘（df -h 找剩余最多的挂载点）
+├── envs/                         # ← $ENV_HOME：所有项目的 venv 放这里
+│   └── lewm/                     #     本项目的 venv
+├── stable-wm/                    # ← $STABLEWM_HOME：数据集 + checkpoint
+│   ├── libero_goal.h5
+│   └── outputs/
+├── LIBERO/                       # ← $LIBERO_DIR：第三方源码（含 task assets）
+├── uv-cache/                     # 可选：wheel 缓存
+└── pip-cache/
 ```
 
-`source ~/.bashrc` 之后开始。
+> **确认大盘挂在哪**：`df -h` 看剩余空间最多的挂载点（常见：`/data`、`/mnt/...`、AutoDL 的 `/root/autodl-tmp`）。
+
+> **本机情况（2026-05-18 实测）**：
+> - `/`（nvme）3.4T / 已用 91% → **不能再放 venv 或数据**
+> - `/mnt/hdd1` 19T 剩 17T、`/mnt/hdd2` 19T 剩 17T → 都是大盘，**用 `/mnt/hdd2`**（剩余最多）
+> - 多用户机器（uid 1002/1003/1006/1011 都有 session）→ 在 hdd2 下用 `yikang/` 子目录隔离
+
+### 占位符（本机实际值）
+
+| 变量 | 含义 | 取值 | 大小 |
+|------|------|------|------|
+| `$REPO_DIR` | 代码 | `/home/yikang/git/le-wm` | < 100 MB |
+| `$ENV_HOME` | venv 父目录 | `/mnt/hdd2/yikang/envs` | 单个 venv 5–10 GB |
+| `$STABLEWM_HOME` | 数据 + checkpoint | `/mnt/hdd2/yikang/stable-wm` | ≥ 50 GB |
+| `$LIBERO_DIR` | LIBERO 源码 | `/mnt/hdd2/yikang/LIBERO` | ~5 GB |
+
+把下面这几行写进 `~/.bashrc`：
+
+```bash
+# 三处分离：代码 / 环境 / 数据
+export REPO_DIR=/home/yikang/git/le-wm              # 程序：nvme 系统盘（git 已 clone 在此）
+export ENV_HOME=/mnt/hdd2/yikang/envs               # 环境：大盘 hdd2
+export STABLEWM_HOME=/mnt/hdd2/yikang/stable-wm     # 数据：大盘 hdd2
+export LIBERO_DIR=/mnt/hdd2/yikang/LIBERO           # 第三方：大盘 hdd2
+
+# HuggingFace 直连（机器在国外，不需要镜像）
+# 如果将来从国内访问，再加：export HF_ENDPOINT=https://hf-mirror.com
+
+# 各种 cache 全部挪到大盘，避免占已经 91% 的系统盘
+export UV_CACHE_DIR=/mnt/hdd2/yikang/uv-cache
+export PIP_CACHE_DIR=/mnt/hdd2/yikang/pip-cache
+export HF_HOME=/mnt/hdd2/yikang/hf-cache              # HuggingFace 数据集/模型缓存
+export TORCH_HOME=/mnt/hdd2/yikang/torch-cache        # torch.hub / 预训练权重
+export WANDB_DIR=/mnt/hdd2/yikang/wandb               # wandb run 日志（跑久了几十 GB）
+```
+
+第一次建目录：
+
+```bash
+mkdir -p /mnt/hdd2/yikang/{envs,stable-wm,LIBERO,uv-cache,pip-cache,hf-cache,torch-cache,wandb}
+```
+
+`source ~/.bashrc` 之后开始。最终 venv 路径 = `$ENV_HOME/lewm`（例如 `/data/envs/lewm`），激活命令固定为：
+
+```bash
+source $ENV_HOME/lewm/bin/activate
+```
+
+### 反例（不要这么做）
+
+```
+$REPO_DIR/.venv/            ❌ venv 进了项目目录，git/IDE 都会受影响
+$REPO_DIR/datasets/         ❌ 数据进了项目目录，几十 GB 拖慢 git
+/root/lewm/                 ❌ 全堆在系统盘根目录，几个 G wheel 就把盘塞满
+$ENV_HOME/lewm/data/        ❌ 数据塞进 venv 里，重建环境就丢
+```
 
 ---
 
@@ -63,7 +130,15 @@ cd $REPO_DIR
 
 ---
 
-## 4. 创建 Python 环境（**不在项目目录里**）
+## 4. 创建 Python 环境（**装在大盘上，不在项目目录里**）
+
+先确认 `$ENV_HOME` 落在大盘上、至少剩 10 GB：
+
+```bash
+df -h $ENV_HOME 2>/dev/null || df -h $(dirname $ENV_HOME)
+```
+
+创建并激活 venv：
 
 ```bash
 mkdir -p $ENV_HOME
@@ -76,6 +151,8 @@ source $ENV_HOME/lewm/bin/activate
 ```bash
 source $ENV_HOME/lewm/bin/activate
 ```
+
+> 一次创建多个项目 venv 时，统一放在 `$ENV_HOME/<项目名>` 下（`$ENV_HOME/lewm`、`$ENV_HOME/<另一个项目>` ……），不要互相嵌套。
 
 ---
 
