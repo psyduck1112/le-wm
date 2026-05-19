@@ -13,3 +13,6 @@ environment_v1.json
 requirements_frozen_v1.txt
 videos/
 datasets/
+LIBERO
+stable-wm
+wandb
