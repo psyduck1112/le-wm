@@ -1,0 +1,59 @@
+defaults:
+  - launcher: local
+  - solver: cem
+  - _self_
+
+# 全任务 eval：每个 episode 从 step 0 跑到 terminated（drawer 到位）
+# - mode='data_collection' 让 _success 只看 _target_task='drawer'
+# - terminate_at_goal=True 让 drawer 到位时立即 terminated
+# - 注：单进程评测（num_envs=1），每个ep的goal_step不同
+
+world:
+  env_name: swm/OGBScene-v0
+  num_envs: 1
+  max_episode_steps: 200      # 运行时被覆盖为 2 * eval_budget
+  history_size: 1
+  frame_skip: 2
+  env_type: scene
+  ob_type: states
+  permute_blocks: True
+  multiview: False
+  width: 224
+  height: 224
+  visualize_info: False
+  mode: data_collection       # 关键：_success 只看 drawer
+  terminate_at_goal: True     # drawer到位即 terminated
+
+dataset:
+  stats: ${eval.dataset_name}
+  keys_to_cache:
+    - action
+    - observation
+
+seed: 42
+policy: /home/yikang/stable-wm/outputs/lewm_ogbscene_drawer_epoch_100
+
+plan_config:
+  horizon: 5
+  receding_horizon: 5
+  action_block: 2
+
+eval:
+  num_eval: 5
+  eval_budget: 40             # 一个 subtask 通常 ~20 步，给 2x budget
+  img_size: 64
+  dataset_name: ogbench/scene_drawer_eval
+  callables:
+    # 1) 还原初始状态
+    - method: set_state
+      args:
+        qpos:          {value: qpos}
+        qvel:          {value: qvel}
+        button_states: {value: button_states}
+    # 2) 注入 drawer 目标位置（让 env 在 terminate_at_goal 判定时使用这个）
+    - method: set_target_drawer_pos
+      args:
+        target_pos:    {value: privileged_target_drawer_pos}
+
+output:
+  filename: ogb_scene_drawer_full_results.txt
