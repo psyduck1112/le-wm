@@ -8,7 +8,7 @@ def print_hdf5_structure(name, obj):
         print(f"Group: {name}")
 
 # 打开刚才解压好的 h5 文件
-h5_path = r"C:\Users\RaymondZh\Desktop\github\le-wm\datasets\libero_goal.h5"
+h5_path = "/home/yikang/git/le-wm/stable-wm/ogbench/scene_expert.h5"
 with h5py.File(h5_path, 'r') as f:
     print(f"--- 正在查看文件: {h5_path} ---")
     # 遍历打印所有内容

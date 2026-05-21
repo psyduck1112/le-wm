@@ -111,8 +111,12 @@ class JEPA(nn.Module):
 
     def criterion(self, info_dict: dict): # 计算Mean Squared Error
         """Compute the cost between predicted embeddings and goal embeddings."""
-        pred_emb = info_dict["predicted_emb"]  # (B,S, T-1, dim)
-        goal_emb = info_dict["goal_emb"]  # (B, S, T, dim)
+        pred_emb = info_dict["predicted_emb"]  # (B, S, T-1, dim)
+        goal_emb = info_dict["goal_emb"]       # get_cost 路径下实际是 (B, T, dim)，缺 S 维
+
+        # 补回 S 维（占位 1），后面 expand_as 会广播到 pred_emb 的 S=num_samples
+        if goal_emb.ndim == 3:
+            goal_emb = goal_emb.unsqueeze(1)   # (B, 1, T, dim)
 
         goal_emb = goal_emb[..., -1:, :].expand_as(pred_emb)
 

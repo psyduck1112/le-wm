@@ -1,0 +1,212 @@
+CUDA_VISIBLE_DEVICES=0,1 python train.py data=ogbscene_drawer
+
+  ---
+  📦 数据 
+  (config/train/data/ogbscene_drawer.yaml)
+
+  ┌───────┬───────────┬───────────────────┐
+  │ 字段  │    值     │       含义        │
+  ├───────┼───────────┼───────────────────┤
+  │       │ ogbench/s │ 从 $STABLEWM_HOME │
+  │ name  │ cene_draw │ /ogbench/scene_dr │
+  │       │ er        │ awer.h5 读        │
+  ├───────┼───────────┼───────────────────┤
+  │ num_s │           │ 每个样本 4 个时间 │
+  │ teps  │ 4         │ 步（=history_size │
+  │       │           │ +num_preds）      │
+  ├───────┼───────────┼───────────────────┤
+  │ frame │ 2         │ 每时间步跨 2 原始 │
+  │ skip  │           │ 仿真步，span=8    │
+  ├───────┼───────────┼───────────────────┤
+  │ keys_ │ pixels,   │                   │
+  │ to_lo │ action,   │ 只读这 3 列       │
+  │ ad    │ observati │                   │
+  │       │ on        │                   │
+  ├───────┼───────────┼───────────────────┤
+  │ keys_ │ action,   │ 这 2              │
+  │ to_ca │ observati │ 列全量读进内存    │
+  │ che   │ on        │                   │
+  ├───────┼───────────┼───────────────────┤
+  │ keys_ │ proprio:  │ observation       │
+  │ to_me │ observati │ 列被别名为        │
+  │ rge   │ on        │ proprio           │
+  └───────┴───────────┴───────────────────┘
+
+  → effective_act_dim = frameskip × action_dim
+   = 2 × 5 = 10
+
+  ---
+  🧠 模型 (config/train/lewm.yaml 的 wm + 
+  predictor)
+
+  ┌─────────────────┬─────┬───────────────┐
+  │      字段       │ 值  │     含义      │
+  ├─────────────────┼─────┼───────────────┤
+  │ wm.history_size │ 3   │ predictor 看  │
+  │                 │     │ 3 帧历史      │
+  ├─────────────────┼─────┼───────────────┤
+  │ wm.num_preds    │ 1   │ 预测 1 步后   │
+  ├─────────────────┼─────┼───────────────┤
+  │                 │     │ 状态嵌入维度  │
+  │ wm.embed_dim    │ 192 │ （= ViT-tiny  │
+  │                 │     │ hidden_size） │
+  ├─────────────────┼─────┼───────────────┤
+  │                 │     │ 输入到 ViT 前 │
+  │ img_size        │ 224 │  resize 到    │
+  │                 │     │ 224×224（原始 │
+  │                 │     │  64 上采样）  │
+  ├─────────────────┼─────┼───────────────┤
+  │                 │     │ ViT patch     │
+  │ patch_size      │ 14  │ 边长 →        │
+  │                 │     │ 16×16=256     │
+  │                 │     │ patches       │
+  ├─────────────────┼─────┼───────────────┤
+  │ encoder_scale   │ tin │ ViT-tiny      │
+  │                 │ y   │ (~5.5M 参数)  │
+  ├─────────────────┼─────┼───────────────┤
+  │ predictor.depth │ 6   │ 6 层          │
+  │                 │     │ transformer   │
+  ├─────────────────┼─────┼───────────────┤
+  │ predictor.heads │ 16  │ 16 个注意力头 │
+  ├─────────────────┼─────┼───────────────┤
+  │ predictor.mlp_d │ 204 │ FFN 隐层      │
+  │ im              │ 8   │               │
+  └─────────────────┴─────┴───────────────┘
+
+  → 总可训练参数 ≈ 15M
+
+  ---
+  🎯 损失 (loss)
+
+  loss = MSE(pred_emb, target_emb) + 0.09 ×
+  SIGReg(emb)
+
+  ┌──────────────────────┬──────┐
+  │         字段         │  值  │
+  ├──────────────────────┼──────┤
+  │ loss.sigreg.weight   │ 0.09 │
+  ├──────────────────────┼──────┤
+  │ loss.sigreg.knots    │ 17   │
+  ├──────────────────────┼──────┤
+  │ loss.sigreg.num_proj │ 1024 │
+  └──────────────────────┴──────┘
+
+  ---
+  ⚙️  优化器 + 训练循环
+
+  ┌───────────────┬───────────────────────┐
+  │     字段      │          值           │
+  ├───────────────┼───────────────────────┤
+  │ optimizer.typ │ AdamW                 │
+  │ e             │                       │
+  ├───────────────┼───────────────────────┤
+  │ optimizer.lr  │ 5e-5                  │
+  ├───────────────┼───────────────────────┤
+  │ optimizer.wei │ 1e-3                  │
+  │ ght_decay     │                       │
+  ├───────────────┼───────────────────────┤
+  │               │ LinearWarmupCosineAnn │
+  │ Scheduler     │ ealingLR（train.py    │
+  │               │ 内写死）              │
+  ├───────────────┼───────────────────────┤
+  │ trainer.max_e │ 100                   │
+  │ pochs         │                       │
+  ├───────────────┼───────────────────────┤
+  │ trainer.preci │ bf16                  │
+  │ sion          │                       │
+  ├───────────────┼───────────────────────┤
+  │ trainer.gradi │ 1.0                   │
+  │ ent_clip_val  │                       │
+  ├───────────────┼───────────────────────┤
+  │ trainer.devic │ auto（自动用全部      │
+  │ es            │ GPU）                 │
+  ├───────────────┼───────────────────────┤
+  │ loader.batch_ │ 128                   │
+  │ size          │                       │
+  ├───────────────┼───────────────────────┤
+  │ loader.num_wo │ 6                     │
+  │ rkers         │                       │
+  ├───────────────┼───────────────────────┤
+  │ train_split   │ 0.9（90% train / 10%  │
+  │               │ val）                 │
+  └───────────────┴───────────────────────┘
+
+  ---
+  📤 输出
+
+  路径:
+  /home/yikang/stable-wm/outputs/{hydra_job_id
+  }/lewm_ogbscene_drawer_epoch_XX_object.ckpt
+  内容: 每个 epoch 一份完整对象 ckpt
+  ────────────────────────────────────────
+  路径: /home/yikang/stable-wm/outputs/{hydra_
+  job_id}/lewm_ogbscene_drawer_weights.ckpt
+  内容: 仅权重 ckpt（断点续训用）
+  ────────────────────────────────────────
+  路径: /home/yikang/stable-wm/outputs/{hydra_
+  job_id}/config.yaml 
+  内容: 本次运行的最终合并配置
+  ────────────────────────────────────────
+  路径: wandb project lewm_ogbscene_drawer
+  内容: 在线训练曲线
+
+  ---
+  🔄 数据流（每个 batch）
+
+  HDF5(scene_drawer.h5)
+    → 采样 batch_size=128 个长度 4 的片段
+    → pixels (128, 4, 64, 64, 3) → resize
+  224×224 → ViT → CLS token → emb (128, 4,
+  192)
+    → action (128, 4, 10) → action_encoder →
+  act_emb (128, 4, 192)
+    → predictor(emb[:, :3], act_emb[:, :3]) →
+  pred_emb (128, 3, 192)
+    → tgt_emb = emb[:, 1:] (128, 3, 192)
+    → loss = MSE(pred_emb, tgt_emb) + 0.09 ×
+  SIGReg(emb)
+    → backward + AdamW step
+
+# train config 改动
+  num_workers: 16        # 总共，每张卡 
+  ~5 个；当前 6 太少导致 GPU 饥饿
+
+  loader:
+    batch_size: 512      # 128 → 
+  512，4×；显存绰绰有余
+    num_workers: ${num_workers}
+    persistent_workers: True
+    prefetch_factor: 4   # 略提高预取
+
+  optimizer:
+    lr: 2e-4             # 线性缩放：5e-5
+   × (512×3)/(128×3) = 2e-4
+
+# drawer 
+     字段      │       值        │
+  ├────────────────┼─────────────────┤
+  │ episodes       │ 8,771           │
+  ├────────────────┼─────────────────┤
+  │ total steps    │ 292,693         │
+  ├────────────────┼─────────────────┤
+  │ ep_len         │ 12 / 101 / 33.4 │
+  │ min/max/mean   │                 │
+  ├────────────────┼─────────────────┤
+  │ pixels         │ (292693, 64,    │
+  │ min/max/mean   │                 │
+  ├────────────────┼─────────────────┤
+  │ pixels         │ (292693, 64,    │
+  │                │ 64, 3) uint8    │
+  ├────────────────┼─────────────────┤
+  │ action         │ (292693, 5)     │
+  │                │ 64, 3) uint8    │
+  ├────────────────┼─────────────────┤
+  │ action         │ (292693, 5)     │
+  │                │ float32         │
+  │ action         │ (292693, 5)     │
+  │                │ float32         │
+  │                │ float32         │
+  ├────────────────┼─────────────────┤
+  │ observation    │ (292693, 40)    │
+  │                │ float32         │
+  └────────────────┴────────────────

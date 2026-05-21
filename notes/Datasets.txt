@@ -1,0 +1,85 @@
+# PushT
+Dataset: action | Shape: (2336736, 2) | Type: float32      action
+Dataset: ep_len | Shape: (18685,) | Type: int32            通过 episode_idx求
+Dataset: ep_offset | Shape: (18685,) | Type: int64      #  记录每个 episode 在这个大数组里的起始位置
+Dataset: episode_idx | Shape: (2336736,) | Type: int64      episode_idx
+Dataset: pixels | Shape: (2336736, 224, 224, 3) | Type: uint8  observation.image
+Dataset: proprio | Shape: (2336736, 4) | Type: float32  # 本体感觉，机器人自身状态    observation.state截取一部分
+Dataset: state | Shape: (2336736, 7) | Type: float32        observation.state
+Dataset: step_idx | Shape: (2336736,) | Type: int64          frame或者timestamp
+
+observevation frame skip: 相邻变化太小，学不到东西，训练慢 
+action 不跳帧 因为利用已知的预测未知的
+每帧 pixels 对应的 action 是"从这帧到下一采样帧之间发生的所有动作"。
+
+state  = self._get_obs()          # 7维: [agent_x, agent_y, agent_vx, agent_vy, block_angle, block_x, block_y]                                                                                 
+proprio = np.concatenate((state[:2], state[-2:]))  # 4维: [agent_x, agent_y, block_x, block_y]    
+    - state = 完整环境状态（含速度、角度）                                                            
+    - proprio = state 的子集，去掉了速度和角度，只保留位置
+
+为什么不用 timestamp 当 step_idx
+
+timestamp 是浮点秒数（如 0.0, 0.1, 0.2...），有两个问题：
+1. 精度问题：浮点数不适合做数组下标
+2. 不连续性：采集数据时可能有掉帧，timestamp 有间隙，但 frame_index 是0,1,2...的连续整数
+
+# OGB Scene
+# privilege都是oracle使用的
+Dataset: action | Shape: (345405, 5) | Type: float32  
+Dataset: button_states | Shape: (345405, 2) | Type: int64
+Dataset: control | Shape: (345405, 7) | Type: float64
+Dataset: env_name | Shape: (345405,) | Type: object
+Dataset: ep_idx | Shape: (345405,) | Type: int32
+Dataset: ep_len | Shape: (20000,) | Type: int32
+Dataset: ep_offset | Shape: (20000,) | Type: int64
+Dataset: id | Shape: (345405,) | Type: int64
+Dataset: observation | Shape: (345405, 40) | Type: float64
+Dataset: pixels | Shape: (345405, 64, 64, 3) | Type: uint8
+Dataset: prev_button_states | Shape: (345405, 2) | Type: int64
+Dataset: prev_qpos | Shape: (345405, 25) | Type: float64
+Dataset: prev_qvel | Shape: (345405, 24) | Type: float64
+Dataset: privileged_block_0_pos | Shape: (345405, 3) | Type: float64
+Dataset: privileged_block_0_quat | Shape: (345405, 4) | Type: float64
+Dataset: privileged_block_0_yaw | Shape: (345405, 1) | Type: float64
+Dataset: privileged_button_0_pos | Shape: (345405, 1) | Type: float64
+Dataset: privileged_button_0_state | Shape: (345405,) | Type: int64
+Dataset: privileged_button_0_vel | Shape: (345405, 1) | Type: float64
+Dataset: privileged_button_1_pos | Shape: (345405, 1) | Type: float64
+Dataset: privileged_button_1_state | Shape: (345405,) | Type: int64
+Dataset: privileged_button_1_vel | Shape: (345405, 1) | Type: float64
+Dataset: privileged_drawer_handle_pos | Shape: (345405, 3) | Type: float64
+Dataset: privileged_drawer_handle_yaw | Shape: (345405, 1) | Type: float64
+Dataset: privileged_drawer_pos | Shape: (345405, 1) | Type: float64
+Dataset: privileged_drawer_vel | Shape: (345405, 1) | Type: float64
+Dataset: privileged_target_block | Shape: (345405,) | Type: int64
+Dataset: privileged_target_block_pos | Shape: (345405, 3) | Type: float64
+Dataset: privileged_target_block_yaw | Shape: (345405, 1) | Type: float64
+Dataset: privileged_target_button | Shape: (345405,) | Type: int64
+Dataset: privileged_target_button_state | Shape: (345405,) | Type: int64
+Dataset: privileged_target_button_top_pos | Shape: (345405, 3) | Type: float64
+Dataset: privileged_target_drawer_handle_pos | Shape: (345405, 3) | Type: float64
+Dataset: privileged_target_drawer_pos | Shape: (345405, 1) | Type: float64
+Dataset: privileged_target_task | Shape: (345405,) | Type: object
+Dataset: privileged_target_window_handle_pos | Shape: (345405, 3) | Type: float64
+Dataset: privileged_target_window_pos | Shape: (345405, 1) | Type: float64
+Dataset: privileged_window_handle_pos | Shape: (345405, 3) | Type: float64
+Dataset: privileged_window_handle_yaw | Shape: (345405, 1) | Type: float64
+Dataset: privileged_window_pos | Shape: (345405, 1) | Type: float64
+Dataset: privileged_window_vel | Shape: (345405, 1) | Type: float64
+Dataset: proprio_effector_pos | Shape: (345405, 3) | Type: float64
+Dataset: proprio_effector_yaw | Shape: (345405, 1) | Type: float64
+Dataset: proprio_gripper_contact | Shape: (345405, 1) | Type: float64
+Dataset: proprio_gripper_opening | Shape: (345405, 1) | Type: float64
+Dataset: proprio_gripper_vel | Shape: (345405, 1) | Type: float64
+Dataset: proprio_joint_pos | Shape: (345405, 6) | Type: float64
+Dataset: proprio_joint_vel | Shape: (345405, 6) | Type: float64
+Dataset: qpos | Shape: (345405, 25) | Type: float64
+Dataset: qvel | Shape: (345405, 24) | Type: float64
+Dataset: render_time | Shape: (345405,) | Type: float64
+Dataset: reward | Shape: (345405,) | Type: float64
+Dataset: step_idx | Shape: (345405,) | Type: int64
+Dataset: success | Shape: (345405,) | Type: bool
+Dataset: target | Shape: (345405, 40) | Type: float64
+Dataset: terminated | Shape: (345405,) | Type: bool
+Dataset: time | Shape: (345405, 1) | Type: float64
+Dataset: truncated | Shape: (345405,) | Type: bool

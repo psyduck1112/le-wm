@@ -16,3 +16,4 @@ datasets/
 LIBERO
 stable-wm
 wandb
+lewm_ogbscene_drawer/atnv35oj/checkpoints/epoch=99-step=40600.ckpt

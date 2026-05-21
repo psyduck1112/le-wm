@@ -2,11 +2,11 @@ defaults:
   - _self_
   - data: libero_goal
 
-output_dir: /root/autodl-tmp/stable-wm/outputs
-output_model_name: lewm_libero_goal
+output_dir: /home/yikang/stable-wm/outputs
+output_model_name: lewm_ogbscene_drawer
 subdir: ${hydra:job.id}
 
-num_workers: 6
+num_workers: 8
 train_split: 0.9
 seed: 3072
 img_size: 224
@@ -22,21 +22,21 @@ trainer:
   gradient_clip_val: 1.0
 
 loader:
-  batch_size: 128
+  batch_size: 512
   num_workers: ${num_workers}
   persistent_workers: True
-  prefetch_factor: 3
+  prefetch_factor: 4
   pin_memory: True
 
 optimizer:
   type: AdamW
-  lr: 5e-5
+  lr: 1e-4
   weight_decay: 1e-3
 
 wandb:
   enabled: True
   config:
-    project: lewm_libero_goal
+    project: lewm_ogbscene_drawer
     name: ${output_model_name}
     id: ${subdir}
     resume: allow
