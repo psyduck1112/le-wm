@@ -85,9 +85,9 @@ python eval.py --config-name=tworoom.yaml policy=tworoom/lewm
 
 # OGBScene drawer eval：两种模式
 # 1) 子序列 eval（随机起点+offset，类似 cube 的做法）
-MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb_eval.py policy=<ckpt 路径(不带_object.ckpt)>
+MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb/ogb_eval.py policy=<ckpt 路径(不带_object.ckpt)>
 # 2) 全任务 eval（每ep从step 0跑，目标=首次success帧，env terminated判定）
-MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb_eval_full.py policy=<ckpt 路径>
+MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb/ogb_eval_full.py policy=<ckpt 路径>
 
 # LIBERO eval
 MUJOCO_GL=egl EGL_DEVICE_ID=0 python eval_libero.py \
@@ -128,10 +128,10 @@ The codebase is small (~350 LOC across 5 core Python files):
 | `module.py` | Building blocks: `SIGReg`, `ARPredictor`, `Embedder`, `MLP`, attention layers |
 | `train.py` | Hydra-based training pipeline (Lightning Trainer) |
 | `eval.py` | Planning evaluation with CEM solver (original envs) |
-| `ogb_eval.py` | OGBScene 子序列 eval（随机起点 + 固定 goal_offset，patch set_state 接受 button_states 数组）|
-| `ogb_eval_full.py` | OGBScene 全任务 eval（每ep从step 0跑，goal=该ep首次success帧，逐ep调用 evaluate_from_dataset）|
-| `OGB_collect.py` | OGBScene 数据采集（drawer-only monkey patch + `terminate_at_goal=False`）|
-| `filter_eval.py` | 从 collect 数据切出 eval 子集（裁列 + 重编号 ep_idx/step_idx）|
+| `ogb/ogb_eval.py` | OGBScene 子序列 eval（随机起点 + 固定 goal_offset，patch set_state 接受 button_states 数组）|
+| `ogb/ogb_eval_full.py` | OGBScene 全任务 eval（每ep从step 0跑，goal=该ep首次success帧，逐ep调用 evaluate_from_dataset）|
+| `ogb/OGB_collect.py` | OGBScene 数据采集（drawer-only monkey patch + `terminate_at_goal=False`）|
+| `ogb/filter_eval.py` | 从 collect 数据切出 eval 子集（裁列 + 重编号 ep_idx/step_idx）|
 | `utils.py` | Callbacks, checkpoint helpers |
 | `eval_libero.py` | LIBERO-specific eval: loads policy, runs World, records video |
 | `eval_short.py` | Short-horizon eval: picks frame K of each demo as goal |
@@ -252,8 +252,8 @@ config/
     launcher/local.yaml
   eval/
     pusht.yaml / cube.yaml / reacher.yaml / tworoom.yaml / libero_goal.yaml
-    ogbscene_drawer.yaml         # ogb_eval.py 用（子序列 eval）
-    ogbscene_drawer_full.yaml    # ogb_eval_full.py 用（全任务 eval, mode=data_collection）
+    ogbscene_drawer.yaml         # ogb/ogb_eval.py 用（子序列 eval）
+    ogbscene_drawer_full.yaml    # ogb/ogb_eval_full.py 用（全任务 eval, mode=data_collection）
     solver/cem.yaml
     launcher/local.yaml
 ```
@@ -268,10 +268,10 @@ WandB logging enabled by default; set `entity`/`project` in `lewm.yaml` (entity 
 
 ## OGBScene Drawer Pipeline (2026-05-21)
 
-### 数据采集 (`OGB_collect.py`)
+### 数据采集 (`ogb/OGB_collect.py`)
 
 ```bash
-MUJOCO_GL=egl EGL_DEVICE_ID=0 python OGB_collect.py \
+MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb/OGB_collect.py \
     --episodes 100 --num-envs 8 \
     --dataset-name ogbench/scene_drawer_train
 ```
@@ -282,11 +282,11 @@ MUJOCO_GL=egl EGL_DEVICE_ID=0 python OGB_collect.py \
   - **为什么不能 `terminate_at_goal=True`**：`swm.World.record_dataset` 的执行顺序是 `step() → _dump_step_data() → check terminateds[i] → _reset_single_env(i)`。后两步把 `self.infos[i]` 重置为新 episode 的 step_idx=0，导致下一次 iteration 的 `get_action()` 看到的是 reset infos，oracle 永远没机会检测 `done=True` → `set_new_target()` 实际是死代码 → episode 在第一个 subtask 完成时就结束（平均 33 步而不是 500 步）。
 - **数据列**：`pixels, qpos(25), qvel, button_states(2), action(5), observation(40)`，外加 `privileged_target_drawer_pos`, `privileged_drawer_pos`, `privileged_target_task`, `success` 等。
 
-### Eval 数据准备 (`filter_eval.py`)
+### Eval 数据准备 (`ogb/filter_eval.py`)
 
 ```bash
 # 从训练数据切出 eval 子集（避免与训练重叠）
-python filter_eval.py --src ogbench/scene_drawer_train \
+python ogb/filter_eval.py --src ogbench/scene_drawer_train \
                      --dst ogbench/scene_drawer_eval \
                      --offset 80 --n-episodes 20
 ```
@@ -295,7 +295,7 @@ python filter_eval.py --src ogbench/scene_drawer_train \
 
 ### 两种 Eval 模式
 
-| | `ogb_eval.py`（子序列）| `ogb_eval_full.py`（全任务）|
+| | `ogb/ogb_eval.py`（子序列）| `ogb/ogb_eval_full.py`（全任务）|
 |---|---|---|
 | 起点 | 随机 step | 固定 step 0 |
 | 目标 | `start + goal_offset_steps` | 该 ep 首次 `success=True` 的步 |
@@ -318,12 +318,12 @@ else:
 
 正常 eval 模式要求 cube/button/drawer/window **同时**满足。reset 后这些目标是随机设置的，几乎不可能匹配 → `terminated` 永远 False → 成功率永远 0。
 
-→ `ogb_eval_full.py` 用 `mode='data_collection'` 让 success 只看 drawer。
+→ `ogb/ogb_eval_full.py` 用 `mode='data_collection'` 让 success 只看 drawer。
 
 ### Eval 用法（drawer-only 全任务）
 
 ```bash
-MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb_eval_full.py \
+MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb/ogb_eval_full.py \
     eval.dataset_name=ogbench/scene_drawer_test \
     eval.num_eval=5 eval.eval_budget=100 \
     policy=/home/yikang/stable-wm/outputs/lewm_ogbscene_drawer_epoch_100
@@ -349,7 +349,7 @@ callables:
 
 `scene_env.set_state(qpos, qvel, button_states)` 原本要求 `button_states` 拆成 `button_state_0`/`button_state_1` 两个标量 kwarg。但 Hydra callable 机制只能整列传 `(2,)` 数组。
 
-`ogb_eval.py` / `ogb_eval_full.py` 顶层 patch：
+`ogb/ogb_eval.py` / `ogb/ogb_eval_full.py` 顶层 patch：
 
 ```python
 def set_state(self, qpos, qvel, button_states=None, **kwargs):

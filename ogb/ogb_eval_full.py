@@ -12,7 +12,7 @@ OGBScene drawer 全任务 eval（不用 offset，跑完整 task 到 terminated�
     - success rate = terminated within eval_budget 的 episode 比例
 
 用法:
-  MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb_eval_full.py \
+  MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb/ogb_eval_full.py \
       --config-name=ogbscene_drawer_full policy=<ckpt 路径>
 """
 
@@ -89,7 +89,7 @@ def find_first_success_steps(dataset, ep_indices, col_name):
     return result
 
 
-@hydra.main(version_base=None, config_path="./config/eval",
+@hydra.main(version_base=None, config_path="../config/eval",
             config_name="ogbscene_drawer_full")
 def run(cfg: DictConfig):
     # Eval env: data_collection mode + terminate_at_goal=True

@@ -16,9 +16,9 @@ filter_eval 的作用：
   - 不再做 task 过滤（collect 端已强制 drawer-only）
 
 运行：
-    python filter_eval.py --src ogbench/scene_drawer_train \
-                          --dst ogbench/scene_drawer_eval \
-                          --n-episodes 50 --offset 0
+    python ogb/filter_eval.py --src ogbench/scene_drawer_train \
+                              --dst ogbench/scene_drawer_eval \
+                              --n-episodes 50 --offset 0
 """
 
 import argparse

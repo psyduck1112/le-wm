@@ -12,7 +12,7 @@ OGBScene 系列任务的 eval 入口（独立于通用 eval.py）。
   policy = WorldModelPolicy(CEMSolver(JEPA ckpt))
 
 用法：
-  MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb_eval.py \
+  MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb/ogb_eval.py \
       --config-name=ogbscene_drawer policy=<ckpt 路径>
 """
 
@@ -91,7 +91,7 @@ def get_dataset(cfg, dataset_name):
     )
 
 
-@hydra.main(version_base=None, config_path="./config/eval", config_name="ogbscene_drawer")
+@hydra.main(version_base=None, config_path="../config/eval", config_name="ogbscene_drawer")
 def run(cfg: DictConfig):
     assert (
         cfg.plan_config.horizon * cfg.plan_config.action_block <= cfg.eval.eval_budget
