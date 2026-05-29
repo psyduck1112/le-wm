@@ -52,8 +52,27 @@ class LiberoGoalLEwMEnv(_LiberoGoalEnv):
         return obs, reward, terminated, truncated, info
 
 
+class LiberoBCDrawerLEwMEnv(LiberoGoalLEwMEnv):
+    """LeWM eval env for LIBERO_90 KITCHEN_SCENE10_close_the_top_drawer task.
+
+    Identical to LiberoGoalLEwMEnv but defaults to LIBERO_90 / task_id=0.
+    Goals are loaded from libero_bc_drawer.h5 (last frames of BC rollouts).
+    """
+
+    def __init__(self, demo_hdf5_path: str, **kwargs):
+        kwargs.setdefault("benchmark_name", "LIBERO_90")
+        kwargs.setdefault("task_id", 0)
+        super().__init__(demo_hdf5_path=demo_hdf5_path, **kwargs)
+
+
 gymnasium.register(
     id="libero-goal-lewm-v0",
     entry_point="envs.libero_env:LiberoGoalLEwMEnv",
     max_episode_steps=600,
+)
+
+gymnasium.register(
+    id="libero-bc-drawer-lewm-v0",
+    entry_point="envs.libero_env:LiberoBCDrawerLEwMEnv",
+    max_episode_steps=300,
 )
