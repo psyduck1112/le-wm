@@ -27,7 +27,8 @@ import matplotlib.pyplot as plt
 
 from _common import load_jepa, encode_frames, DrawerH5, RESULTS_DIR
 
-GROUPS = {"eef_pos": slice(0, 3), "axis_angle": slice(3, 6), "gripper": slice(6, 8)}
+GROUPS = {"eef_pos": slice(0, 3), "axis_angle": slice(3, 6), "gripper": slice(6, 8),
+          "drawer": slice(8, 9)}   # M0 新增抽屉真值靶子 (核心: emb 是否编码抽屉)
 
 
 def _ridge(Xtr, Ytr, Xte, lam):
@@ -117,8 +118,8 @@ def main():
 
     Xtr, Ytr, Xte, Yte = [], [], [], []
     for ep in eps:
-        emb = encode_frames(model, h5.pixels(ep)).numpy()   # (L,192)
-        pro = h5.proprio(ep)                                  # (L,8)
+        emb = encode_frames(model, h5.pixels(ep), h5.eye_in_hand(ep)).numpy()  # (L,192) 双相机
+        pro = np.concatenate([h5.proprio(ep), h5.drawer_qpos(ep)], axis=1)     # (L,9) +抽屉真值
         if ep in test_eps:
             Xte.append(emb); Yte.append(pro)
         else:

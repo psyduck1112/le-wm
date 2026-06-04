@@ -1,12 +1,5 @@
-[lewm      ] ep  1/5  fail     steps= 72  rate=0.00  (670s)
-[lewm      ] ep  2/5  fail     steps= 72  rate=0.00  (671s)
-[lewm      ] ep  3/5  fail     steps= 72  rate=0.00  (713s)
-[lewm      ] ep  4/5  fail     steps= 72  rate=0.00  (666s)
-[lewm      ] ep  5/5  fail     steps= 72  rate=0.00  (668s)
-==== lewm oracle-dynamics success: 0/5 = 0.0% ====
-[privileged] ep  1/5  SUCCESS  steps= 18  rate=1.00  (170s)
-[privileged] ep  2/5  SUCCESS  steps= 17  rate=1.00  (172s)
-[privileged] ep  3/5  SUCCESS  steps= 17  rate=1.00  (170s)
-[privileged] ep  4/5  SUCCESS  steps= 18  rate=1.00  (172s)
-[privileged] ep  5/5  SUCCESS  steps= 16  rate=1.00  (171s)
-==== privileged oracle-dynamics success: 5/5 = 100.0% ====
+[value     ] ep  1/4  fail     steps=150  rate=0.00  (1169s)
+[value     ] ep  2/4  fail     steps=150  rate=0.00  (1163s)
+[value     ] ep  3/4  fail     steps=150  rate=0.00  (1176s)
+[value     ] ep  4/4  fail     steps=150  rate=0.00  (1155s)
+==== value oracle-dynamics success: 0/4 = 0.0% ====

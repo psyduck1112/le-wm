@@ -17,11 +17,12 @@ from torchvision.transforms import v2 as T
 import stable_pretraining as spt
 import stable_worldmodel as swm
 
-H5_PATH = "/home/yikang/stable-wm/libero_bc_drawer.h5"
+H5_PATH = "/home/yikang/git/le-wm/data/libero_bc_drawer_v2.h5"   # M0: 双相机 + drawer_qpos
 CKPT_DIR = "/home/yikang/stable-wm/outputs"
+MODEL_NAME = "lewm_libero_bc_drawer_v2"   # M1: 双相机重训
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
-EMB_DIM = 192
+EMB_DIM = 192   # projector 输出仍 192 (两路 CLS 拼 384 -> 192)
 HISTORY = 3
 
 # image transform IDENTICAL to bc_drawer_eval.py / training pipeline
@@ -34,7 +35,7 @@ _PIX_TF = T.Compose([
 
 
 def ckpt_prefix(epoch: int = 200) -> str:
-    return f"{CKPT_DIR}/lewm_libero_bc_drawer_epoch_{epoch}"
+    return f"{CKPT_DIR}/{MODEL_NAME}_epoch_{epoch}"
 
 
 def load_jepa(epoch: int = 200, device: str = "cuda"):
@@ -52,13 +53,20 @@ def transform_pixels(frames: np.ndarray) -> torch.Tensor:
 
 
 @torch.no_grad()
-def encode_frames(model, frames: np.ndarray, device: str = "cuda",
-                  batch_size: int = 256) -> torch.Tensor:
-    """Encode (N,H,W,3) uint8 frames -> (N, EMB_DIM) embeddings (on CPU)."""
+def encode_frames(model, frames: np.ndarray, eye_frames: np.ndarray = None,
+                  device: str = "cuda", batch_size: int = 256) -> torch.Tensor:
+    """Encode (N,H,W,3) uint8 frames -> (N, EMB_DIM) embeddings (on CPU).
+
+    eye_frames: 可选腕部相机 (N,H,W,3). M1 的 v2 双相机模型必须传 (否则
+    encode 只出 192 维 CLS, 与 projector 的 384 输入不匹配会报错).
+    """
     embs = []
     for i in range(0, len(frames), batch_size):
         pix = transform_pixels(frames[i:i + batch_size]).to(device)  # (b,3,224,224)
         info = {"pixels": pix.unsqueeze(1)}  # (b,1,3,224,224)
+        if eye_frames is not None:
+            eye = transform_pixels(eye_frames[i:i + batch_size]).to(device)
+            info["eye_in_hand"] = eye.unsqueeze(1)
         out = model.encode(info)
         embs.append(out["emb"][:, 0].float().cpu())  # (b, D)
     return torch.cat(embs, 0)
@@ -86,10 +94,22 @@ class DrawerH5:
     def proprio(self, ep: int) -> np.ndarray:
         return self.f["proprio"][self.episode_slice(ep)]
 
+    def eye_in_hand(self, ep: int) -> np.ndarray:
+        return self.f["eye_in_hand"][self.episode_slice(ep)]
+
+    def drawer_qpos(self, ep: int) -> np.ndarray:
+        """(L,1) 抽屉关节真值 (探测3 回归靶子, 不进模型)."""
+        return self.f["drawer_qpos"][self.episode_slice(ep)]
+
     def goal_frame(self, ep: int) -> np.ndarray:
-        """Last frame of the episode = drawer-closed goal image."""
+        """Last frame of the episode = drawer-closed goal image (agentview)."""
         o, l = int(self.ep_offset[ep]), int(self.ep_len[ep])
         return self.f["pixels"][o + l - 1]
+
+    def goal_eye_frame(self, ep: int) -> np.ndarray:
+        """Last frame, eye_in_hand (goal 一侧第二路相机)."""
+        o, l = int(self.ep_offset[ep]), int(self.ep_len[ep])
+        return self.f["eye_in_hand"][o + l - 1]
 
     def close(self):
         self.f.close()

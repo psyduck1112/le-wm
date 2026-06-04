@@ -1,9 +1,9 @@
 defaults:
   - _self_
-  - data: libero_goal
+  - data: libero_bc_drawer   # M1 默认: 双相机 v2 (这样裸跑 python train.py 就对)
 
 output_dir: /home/yikang/stable-wm/outputs
-output_model_name: lewm_ogbscene_drawer
+output_model_name: lewm_libero_bc_drawer_v2
 subdir: ${hydra:job.id}
 
 num_workers: 8
@@ -15,14 +15,15 @@ encoder_scale: tiny
 dump_object: True
 
 trainer:
-  max_epochs: 100
-  devices: auto
+  max_epochs: 200
+  devices: 1
   accelerator: gpu
   precision: bf16
   gradient_clip_val: 1.0
+  accumulate_grad_batches: 2   # 配合 batch_size=256 -> 有效 batch 512 (双相机防 OOM)
 
 loader:
-  batch_size: 512
+  batch_size: 256   # 双相机显存: 物理 256 + 累积 2 = 有效 512
   num_workers: ${num_workers}
   persistent_workers: True
   prefetch_factor: 4
@@ -36,7 +37,7 @@ optimizer:
 wandb:
   enabled: True
   config:
-    project: lewm_ogbscene_drawer
+    project: lewm_libero_bc_drawer_v2
     name: ${output_model_name}
     id: ${subdir}
     resume: allow

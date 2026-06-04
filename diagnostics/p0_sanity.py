@@ -57,7 +57,7 @@ def main():
     for ep in eps:
         pix = h5.pixels(ep)
         acts = h5.actions(ep)
-        emb = encode_frames(model, pix)                     # (L,D) cpu
+        emb = encode_frames(model, pix, h5.eye_in_hand(ep))   # (L,D) cpu 双相机
         spec_embs.append(emb)
         act_t = torch.from_numpy(acts).float().unsqueeze(0).cuda()  # (1,L,A)
         act_emb = model.action_encoder(act_t)[0].cpu()      # (L,A_emb)

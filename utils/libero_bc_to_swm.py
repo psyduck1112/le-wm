@@ -9,11 +9,13 @@ Source layout:
   data/demo_X/actions            (T, 7)
 
 Target layout (SWM HDF5Dataset format):
-  ep_len    (N,)        int64
-  ep_offset (N,)        int64
-  pixels    (total, 224, 224, 3)  uint8
-  action    (total, 7)  float32
-  proprio   (total, 8)  float32   [ee_pos(3) | ee_ori(3) | gripper(2)]
+  ep_len      (N,)        int64
+  ep_offset   (N,)        int64
+  pixels      (total, 224, 224, 3)  uint8   agentview
+  eye_in_hand (total, 224, 224, 3)  uint8   wrist camera (M1: 进视觉 emb)
+  action      (total, 7)  float32
+  proprio     (total, 8)  float32   [ee_pos(3) | ee_ori(3) | gripper(2)]
+  drawer_qpos (total, 1)  float32   抽屉关节真值 (探测3 回归靶子, 不进模型)
 
 Usage:
   python utils/libero_bc_to_swm.py
@@ -26,7 +28,12 @@ from pathlib import Path
 
 
 SRC = "/home/yikang/stable-wm/libero_bc_rollouts/KITCHEN_SCENE10_close_the_top_drawer_of_the_cabinet_bc.hdf5"
-DST = "/home/yikang/stable-wm/libero_bc_drawer.h5"
+DST = "/home/yikang/git/le-wm/data/libero_bc_drawer_v2.h5"
+
+# states = sim.get_state().flatten() = [time(1), qpos..., qvel...]
+# 抽屉关节 model qpos 地址=37 (find_drawer_joint), states 下标 = 37 + 1(time) = 38。
+# 经验校验: 关抽屉 demo 中该列起≈-0.15 -> 终≈0.001 (open=-0.16, closed=+0.01)。
+DRAWER_COL = 38
 
 
 def parse_args():
@@ -72,11 +79,18 @@ def main():
                 "pixels", shape=(total, 224, 224, 3), dtype=np.uint8,
                 chunks=(64, 224, 224, 3), compression=None,
             )
+            eih_ds = dst.create_dataset(
+                "eye_in_hand", shape=(total, 224, 224, 3), dtype=np.uint8,
+                chunks=(64, 224, 224, 3), compression=None,
+            )
             act_ds = dst.create_dataset(
                 "action", shape=(total, 7), dtype=np.float32,
             )
             prop_ds = dst.create_dataset(
                 "proprio", shape=(total, 8), dtype=np.float32,
+            )
+            dq_ds = dst.create_dataset(
+                "drawer_qpos", shape=(total, 1), dtype=np.float32,
             )
 
             # --- pass 2: fill ---
@@ -86,7 +100,8 @@ def main():
                 obs  = demo["obs"]
                 T    = ep_lens[i]
 
-                px_ds[cursor:cursor + T] = obs["agentview_rgb"][:]  # (T,224,224,3)
+                px_ds[cursor:cursor + T] = obs["agentview_rgb"][:]      # (T,224,224,3)
+                eih_ds[cursor:cursor + T] = obs["eye_in_hand_rgb"][:]   # (T,224,224,3) 原样, 不翻转(与 agentview 一致)
                 act_ds[cursor:cursor + T] = demo["actions"][:].astype(np.float32)
 
                 proprio = np.concatenate([
@@ -95,6 +110,8 @@ def main():
                     obs["gripper_states"][:].astype(np.float32),   # (T,2)
                 ], axis=1)
                 prop_ds[cursor:cursor + T] = proprio
+
+                dq_ds[cursor:cursor + T] = demo["states"][:, DRAWER_COL:DRAWER_COL + 1].astype(np.float32)
 
                 cursor += T
 

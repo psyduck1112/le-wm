@@ -43,13 +43,14 @@ def main():
     # fixed cross-goal: last frame of a held-out episode not in eps
     pool = [e for e in range(h5.n_ep) if e not in set(eps)]
     cross_ep = int(rng.choice(pool))
-    cross_goal_emb = encode_frames(model, h5.goal_frame(cross_ep)[None]).cuda()[0]
+    cross_goal_emb = encode_frames(model, h5.goal_frame(cross_ep)[None],
+                                   h5.goal_eye_frame(cross_ep)[None]).cuda()[0]
 
     rows = {"same": [], "cross": []}
     curves = []
     for ep in eps:
         pix = h5.pixels(ep)
-        emb = encode_frames(model, pix).cuda()             # (L,D)
+        emb = encode_frames(model, pix, h5.eye_in_hand(ep)).cuda()   # (L,D) 双相机
         L = emb.size(0)
         progress = np.linspace(0, 1, L)
         same_goal = emb[-1]

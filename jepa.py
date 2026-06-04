@@ -29,13 +29,23 @@ class JEPA(nn.Module):
     def encode(self, info):
         """Encode observations and actions into embeddings.
         info: dict with pixels and action keys
+
+        若 info 含 'eye_in_hand', 第二路腕部相机过同一个 encoder (共享权重),
+        两路 CLS 拼接后过 projector. emb 保持纯视觉 -> goal 一侧 (也含 eye_in_hand)
+        自动对称, 不破坏 goal-image cost.
         """
 
-        pixels = info['pixels'].float()
-        b = pixels.size(0)
-        pixels = rearrange(pixels, "b t ... -> (b t) ...") # flatten for encoding
-        output = self.encoder(pixels, interpolate_pos_encoding=True)
-        pixels_emb = output.last_hidden_state[:, 0]  # cls token
+        b = info['pixels'].size(0)
+
+        def _cls(px):
+            px = rearrange(px.float(), "b t ... -> (b t) ...")  # flatten for encoding
+            out = self.encoder(px, interpolate_pos_encoding=True)
+            return out.last_hidden_state[:, 0]  # cls token
+
+        pixels_emb = _cls(info['pixels'])
+        if "eye_in_hand" in info:
+            pixels_emb = torch.cat([pixels_emb, _cls(info["eye_in_hand"])], dim=-1)
+
         emb = self.projector(pixels_emb)
         info["emb"] = rearrange(emb, "(b t) d -> b t d", b=b)
 

@@ -1,0 +1,18 @@
+[robosuite WARNING] No private macro file found! (__init__.py:7)
+[robosuite WARNING] It is recommended to use a private macro file (__init__.py:8)
+[robosuite WARNING] To setup, run: python /home/yikang/envs/lewm/lib/python3.10/site-packages/robosuite/scripts/setup_macros.py (__init__.py:9)
+[Warning]: datasets path /home/yikang/LIBERO/libero/libero/../datasets does not exist!
+[Warning]: datasets path /home/yikang/LIBERO/libero/libero/../datasets does not exist!
+drawer joint: ('wooden_cabinet_1_top_level', 37, 0.01)
+[lewm      ] ep  1/8  fail     steps=100  rate=0.00  (358s)
+[lewm      ] ep  2/8  fail     steps=100  rate=0.00  (359s)
+[lewm      ] ep  3/8  fail     steps=100  rate=0.00  (360s)
+[lewm      ] ep  4/8  fail     steps=100  rate=0.00  (357s)
+[lewm      ] ep  5/8  fail     steps=100  rate=0.00  (287s)
+[lewm      ] ep  6/8  fail     steps=100  rate=0.00  (276s)
+[lewm      ] ep  7/8  fail     steps=100  rate=0.00  (276s)
+[lewm      ] ep  8/8  fail     steps=100  rate=0.00  (278s)
+==== lewm oracle-dynamics success: 0/8 = 0.0% ====
+
+===== Probe 6 summary (baseline le-wm MPC = 10%) =====
+  oracle-dynamics + lewm       cost : 0.0%

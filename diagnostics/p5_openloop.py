@@ -66,7 +66,7 @@ def main():
         L = len(pix)
         if L < hs + H:
             continue
-        emb = encode_frames(model, pix).cuda()                 # (L,D)
+        emb = encode_frames(model, pix, h5.eye_in_hand(ep)).cuda()   # (L,D) 双相机
         act = torch.from_numpy(h5.actions(ep)).float().unsqueeze(0).cuda()
         act_emb = model.action_encoder(act)[0]                 # (L,A)
         # multiple start points along the trajectory

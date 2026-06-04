@@ -20,6 +20,7 @@ Usage:
 """
 import argparse
 import os
+import sys
 import time
 import numpy as np
 import torch
@@ -29,6 +30,9 @@ from libero.libero.benchmark import get_benchmark
 from libero.libero.envs import OffScreenRenderEnv
 
 from _common import load_jepa, encode_frames, DrawerH5, RESULTS_DIR
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "value"))
+from value_head import GoalCost  # noqa: E402
 
 WARMUP = 5
 
@@ -81,10 +85,18 @@ DRAWER_BODY = "wooden_cabinet_1_cabinet_top"
 
 
 @torch.no_grad()
-def lewm_costs(model, frames, goal_emb):
-    """frames: list of (H,W,3). Returns (N,) cost = ||enc(frame)-goal_emb||^2."""
-    emb = encode_frames(model, np.stack(frames))          # (N,192) cpu
+def lewm_costs(model, frames, eye_frames, goal_emb):
+    """frames/eye_frames: list of (H,W,3) 双相机. Returns (N,) cost = ||enc-goal_emb||^2."""
+    emb = encode_frames(model, np.stack(frames), np.stack(eye_frames))   # (N,192) cpu
     return ((emb - goal_emb) ** 2).sum(-1).numpy()
+
+
+@torch.no_grad()
+def value_costs(model, vhead, frames, eye_frames, goal_emb):
+    """Stage-2 cost: encode imagined finals -> C(emb, goal_emb) (learned cost-to-go)."""
+    emb = encode_frames(model, np.stack(frames), np.stack(eye_frames)).cuda()  # (N,192)
+    g = goal_emb.cuda().unsqueeze(0).expand(emb.size(0), -1)
+    return vhead(emb, g).cpu().numpy()
 
 
 def privileged_cost(env, drawer):
@@ -108,18 +120,21 @@ def oracle_cem(env, model, s_t, goal_emb, cfg, cost_mode, drawer):
     for _ in range(cfg["n_iter"]):
         cand = mean[None] + np.sqrt(var)[None] * rng.standard_normal((N, H, 7)).astype(np.float32)
         cand = np.clip(cand, -1.0, 1.0)
-        finals, drawer_vals = [], []
+        finals, finals_eye, drawer_vals = [], [], []
         for n in range(N):
             restore(env, s_t)
             obs = None
             for h in range(H):
                 obs, _, _, _ = env.step(cand[n, h])
-            if cost_mode == "lewm":
+            if cost_mode in ("lewm", "value"):
                 finals.append(obs["agentview_image"])
+                finals_eye.append(obs["robot0_eye_in_hand_image"])   # 第二路相机 (raw, 与训练一致)
             else:  # privileged: shaped reach + close
                 drawer_vals.append(privileged_cost(env, drawer))
         if cost_mode == "lewm":
-            costs = lewm_costs(model, finals, goal_emb)
+            costs = lewm_costs(model, finals, finals_eye, goal_emb)
+        elif cost_mode == "value":
+            costs = value_costs(model, cfg["vhead"], finals, finals_eye, goal_emb)
         else:
             costs = np.asarray(drawer_vals)
         elite = np.argsort(costs)[:topk]
@@ -160,7 +175,9 @@ def run_episode(env, model, init_state, goal_emb, cfg, cost_mode, drawer):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--epoch", type=int, default=200)
-    ap.add_argument("--cost", choices=["lewm", "privileged", "both"], default="both")
+    ap.add_argument("--cost", choices=["lewm", "privileged", "value", "both"], default="both")
+    ap.add_argument("--value-ckpt", default=os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "value", "value_head.pt"))
     ap.add_argument("--n-eval", type=int, default=8)
     ap.add_argument("--H", type=int, default=5)
     ap.add_argument("--N", type=int, default=150)
@@ -182,14 +199,23 @@ def main():
     rng = np.random.default_rng(args.seed)
     # fixed goals + init indices, shared across cost modes for fair comparison
     goal_eps = rng.choice(h5.n_ep, size=args.n_eval, replace=False)
-    goal_embs = [encode_frames(model, h5.goal_frame(e)[None])[0] for e in goal_eps]
+    goal_embs = [encode_frames(model, h5.goal_frame(e)[None],
+                               h5.goal_eye_frame(e)[None])[0] for e in goal_eps]
     init_idx = [int(rng.integers(0, len(init_states))) for _ in range(args.n_eval)]
+
+    modes = ["lewm", "privileged"] if args.cost == "both" else [args.cost]
+
+    vhead = None
+    if "value" in modes:
+        ck = torch.load(args.value_ckpt, map_location="cuda")
+        vhead = GoalCost(emb_dim=ck["emb_dim"]).cuda().eval()
+        vhead.load_state_dict(ck["state_dict"])
+        vhead.requires_grad_(False)
+        print(f"loaded value head <- {args.value_ckpt} (gamma={ck.get('gamma')})")
 
     cfg = dict(H=args.H, N=args.N, n_iter=args.n_iter, topk=args.topk,
                var_scale=args.var_scale, receding=args.receding, budget=args.budget,
-               debug=args.debug, rng=np.random.default_rng(args.seed + 1))
-
-    modes = ["lewm", "privileged"] if args.cost == "both" else [args.cost]
+               debug=args.debug, vhead=vhead, rng=np.random.default_rng(args.seed + 1))
     if "privileged" in modes and drawer is None:
         print("WARNING: drawer joint not found, skipping privileged mode")
         modes = [m for m in modes if m != "privileged"]

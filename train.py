@@ -52,11 +52,17 @@ def run(cfg):
     #########################
 
     dataset = swm.data.HDF5Dataset(**cfg.data.dataset, transform=None) # 读取数据
-    transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
-    
+
+    # 图像列: pixels(agentview) + 可选 eye_in_hand(腕部相机, M1). 二者都走图像预处理,
+    # 不能进下面的数值标准化循环 (会被当向量算 mean/std -> 毁图/崩溃).
+    image_cols = [c for c in cfg.data.dataset.keys_to_load
+                  if c.startswith("pixels") or c == "eye_in_hand"]
+    transforms = [get_img_preprocessor(source=c, target=c, img_size=cfg.img_size)
+                  for c in image_cols]
+
     with open_dict(cfg):
         for col in cfg.data.dataset.keys_to_load:
-            if col.startswith("pixels"):
+            if col in image_cols:
                 continue
 
             normalizer = get_column_normalizer(dataset, col, col)
@@ -101,8 +107,11 @@ def run(cfg):
 
     action_encoder = Embedder(input_dim=effective_act_dim, emb_dim=embed_dim)
     
+    # 多相机: 每路 ViT 出一个 hidden_dim 的 CLS, 在 encode() 里拼接后过 projector.
+    # 单相机数据集 (pusht/dmc/...) n_cams=1 -> input_dim 不变, 向后兼容.
+    n_cams = len(image_cols)
     projector = MLP(
-        input_dim=hidden_dim,
+        input_dim=n_cams * hidden_dim,
         output_dim=embed_dim,
         hidden_dim=2048,
         norm_fn=torch.nn.BatchNorm1d,

@@ -1,0 +1,40 @@
+[robosuite WARNING] No private macro file found! (__init__.py:7)
+[robosuite WARNING] It is recommended to use a private macro file (__init__.py:8)
+[robosuite WARNING] To setup, run: python /home/yikang/envs/lewm/lib/python3.10/site-packages/robosuite/scripts/setup_macros.py (__init__.py:9)
+[Warning]: datasets path /home/yikang/LIBERO/libero/libero/../datasets does not exist!
+[Warning]: datasets path /home/yikang/LIBERO/libero/libero/../datasets does not exist!
+drawer joint: ('wooden_cabinet_1_top_level', 37, 0.01)
+    [dbg] step=  3 drawer_q=-0.145 (open=-0.16 closed=+0.01) eef_dist=0.336
+    [dbg] step=  6 drawer_q=-0.145 (open=-0.16 closed=+0.01) eef_dist=0.283
+    [dbg] step=  9 drawer_q=-0.145 (open=-0.16 closed=+0.01) eef_dist=0.243
+    [dbg] step= 12 drawer_q=-0.110 (open=-0.16 closed=+0.01) eef_dist=0.228
+    [dbg] step= 15 drawer_q=-0.061 (open=-0.16 closed=+0.01) eef_dist=0.221
+    [dbg] step= 18 drawer_q=-0.009 (open=-0.16 closed=+0.01) eef_dist=0.230
+[privileged] ep  1/4  SUCCESS  steps= 20  rate=1.00  (164s)
+    [dbg] step=  3 drawer_q=-0.157 (open=-0.16 closed=+0.01) eef_dist=0.323
+    [dbg] step=  6 drawer_q=-0.157 (open=-0.16 closed=+0.01) eef_dist=0.276
+    [dbg] step=  9 drawer_q=-0.157 (open=-0.16 closed=+0.01) eef_dist=0.238
+    [dbg] step= 12 drawer_q=-0.092 (open=-0.16 closed=+0.01) eef_dist=0.236
+    [dbg] step= 15 drawer_q=-0.043 (open=-0.16 closed=+0.01) eef_dist=0.234
+    [dbg] step= 18 drawer_q=-0.001 (open=-0.16 closed=+0.01) eef_dist=0.226
+[privileged] ep  2/4  SUCCESS  steps= 19  rate=1.00  (164s)
+    [dbg] step=  3 drawer_q=-0.159 (open=-0.16 closed=+0.01) eef_dist=0.326
+    [dbg] step=  6 drawer_q=-0.159 (open=-0.16 closed=+0.01) eef_dist=0.276
+    [dbg] step=  9 drawer_q=-0.159 (open=-0.16 closed=+0.01) eef_dist=0.237
+    [dbg] step= 12 drawer_q=-0.116 (open=-0.16 closed=+0.01) eef_dist=0.233
+    [dbg] step= 15 drawer_q=-0.068 (open=-0.16 closed=+0.01) eef_dist=0.218
+    [dbg] step= 18 drawer_q=-0.031 (open=-0.16 closed=+0.01) eef_dist=0.204
+    [dbg] step= 21 drawer_q=-0.026 (open=-0.16 closed=+0.01) eef_dist=0.167
+    [dbg] step= 24 drawer_q=-0.025 (open=-0.16 closed=+0.01) eef_dist=0.157
+[privileged] ep  3/4  SUCCESS  steps= 27  rate=1.00  (211s)
+    [dbg] step=  3 drawer_q=-0.156 (open=-0.16 closed=+0.01) eef_dist=0.342
+    [dbg] step=  6 drawer_q=-0.156 (open=-0.16 closed=+0.01) eef_dist=0.289
+    [dbg] step=  9 drawer_q=-0.156 (open=-0.16 closed=+0.01) eef_dist=0.260
+    [dbg] step= 12 drawer_q=-0.074 (open=-0.16 closed=+0.01) eef_dist=0.257
+    [dbg] step= 15 drawer_q=-0.032 (open=-0.16 closed=+0.01) eef_dist=0.243
+    [dbg] step= 18 drawer_q=-0.001 (open=-0.16 closed=+0.01) eef_dist=0.221
+[privileged] ep  4/4  SUCCESS  steps= 19  rate=1.00  (161s)
+==== privileged oracle-dynamics success: 4/4 = 100.0% ====
+
+===== Probe 6 summary (baseline le-wm MPC = 10%) =====
+  oracle-dynamics + privileged cost : 100.0%

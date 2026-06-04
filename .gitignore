@@ -12,6 +12,7 @@ environment_v1.json
 requirements_frozen_v1.txt
 videos/
 datasets/
+data/
 LIBERO
 stable-wm
 wandb
@@ -20,3 +21,8 @@ viz_test
 bert
 lewm_libero_bc_drawer/ijukphxe/checkpoints/epoch=74-step=30975.ckpt
 lewm_libero_bc_drawer/magdlble/checkpoints/epoch=199-step=82600.ckpt
+lightning_logs
+
+lewm_libero_bc_drawer_v2/ny8srhq9/checkpoints/epoch=199-step=124000.ckpt
+lewm_libero_bc_drawer_v2/0hqm8stl/checkpoints/epoch=32-step=20460.ckpt
+value/emb_cache.npz
