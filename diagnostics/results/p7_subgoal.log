@@ -1,9 +1,0 @@
-[subgoal k=4] ep  1/8  fail     steps=100  reached_wp=4/4  rate=0.00  (320s)
-[subgoal k=4] ep  2/8  fail     steps=100  reached_wp=4/4  rate=0.00  (321s)
-[subgoal k=4] ep  3/8  fail     steps=100  reached_wp=4/4  rate=0.00  (319s)
-[subgoal k=4] ep  4/8  fail     steps=100  reached_wp=4/4  rate=0.00  (323s)
-[subgoal k=4] ep  5/8  fail     steps=100  reached_wp=4/4  rate=0.00  (325s)
-[subgoal k=4] ep  6/8  fail     steps=100  reached_wp=4/4  rate=0.00  (332s)
-[subgoal k=4] ep  7/8  fail     steps=100  reached_wp=4/4  rate=0.00  (318s)
-[subgoal k=4] ep  8/8  fail     steps=100  reached_wp=4/4  rate=0.00  (322s)
-==== subgoal (k=4) oracle-dynamics + lewm-cost success: 0/8 = 0.0%  (probe6 single-goal baseline = 0/8) ====

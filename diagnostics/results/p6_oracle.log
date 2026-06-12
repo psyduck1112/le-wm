@@ -1,5 +1,0 @@
-[value     ] ep  1/4  fail     steps=150  rate=0.00  (1169s)
-[value     ] ep  2/4  fail     steps=150  rate=0.00  (1163s)
-[value     ] ep  3/4  fail     steps=150  rate=0.00  (1176s)
-[value     ] ep  4/4  fail     steps=150  rate=0.00  (1155s)
-==== value oracle-dynamics success: 0/4 = 0.0% ====

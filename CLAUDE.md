@@ -384,3 +384,49 @@ proprio = concat(obs["robot0_eef_pos"], quat2axisangle(obs["robot0_eef_quat"]), 
 ```
 
 LIBERO renders agentview in OpenGL convention (origin bottom-left); training pixels are top-left. Flip vertically (`img[::-1]`) in any new env using raw `OffScreenRenderEnv`.
+
+## Drawer-close 诊断进度与困境 (2026-06-10)
+
+任务：LIBERO drawer-close，双相机 JEPA（frozen ViT 编码器 + 学到的 predictor + cost + CEM planning），checkpoint `lewm_libero_bc_drawer_v2_epoch_200`。baseline 真机 MPC（`diagnostics/p9_real_mpc.py`）≈ **9–10%**。诊断脚本都在 `diagnostics/`，跑在 GPU0（`CUDA_VISIBLE_DEVICES=0`，GPU1/2 是别的任务，勿动）。
+
+### 结论链（已坐实 bottleneck = cost，不是 predictor / 数据）
+
+1. **p6 oracle-dynamics（用真 MuJoCo 替换学到的 predictor）**：
+   - `--cost privileged`（真 sim 读 reach+30·close）→ **100%**。说明 MPC harness + 编码器没问题，给对 cost 就能解。
+   - `--cost lewm`（goal-image emb-L2）→ 失败。→ **bottleneck 是 cost**。
+2. **p2 / p3b 探针**：emb-L2 cost 非单调（false valleys）；但 reach、drawer_qpos 都能从 emb 线性/MLP 解码（p3b：reach R²=0.705，full privileged R²=0.750）。→ 信息在 emb 里，问题是 cost 形式。
+
+### Method A = decode-then-cost（D_φ），当前主线
+
+`value/state_decoder.py` `StateDecoder`：frozen emb(192) → MLP(192→256→4) → (eef_pos 3, drawer_qpos 1)，再用 `decoded_cost` 重组 p6 的 `‖eef−CABINET‖ + 30·|q−CLOSED|`（CABINET=[-0.0019,-0.1502,0.905], CLOSED=0.01）。**goal-image free**（不再依赖 goal emb-L2）。训练 `value/train_state_decoder.py` 复用 `value/emb_cache.npz`，免重编码，episode-split。
+
+**验证阶梯（cost-agnostic，cheap→expensive）：**
+- **闸1 单调性** `diagnostics/p2b_decoded_mono.py`：**PASS**。held-out cross ρ：decoded −0.779（false valleys 33.4→0.5）；对照 emb-L2 cross +0.017（坏的部署 cost）。
+- **闸2 oracle-dynamics CEM** `diagnostics/p6_oracle.py --cost decoded`：**FAIL**。同 config 下 privileged 6/6=100%，但 decoded 把手臂**推离**抽屉（drawer_q 冻在 −0.157，eef_dist 0.358→0.407）。
+- **闸3 真机 MPC p9 n≥20**：未到达。
+
+### 核心困境：OOD 利用（reward hacking）
+
+闸1 过、闸2 崩，根因不是 D_φ 不准（在 BC 流形上 R²~0.98），而是 **CEM 是优化器，会主动找 D_φ 的漏洞**。`diagnostics/p6d_video_dual.py` 直接量化（视频 `results/p6c_videos/decoded_dual_ep0_fail.mp4`）：
+- `corr(true_reach, D_φ_reach) = −0.557` —— 估计值与真相**反向**移动。
+- D_φ 把 reach 估到 0.101（谎称贴近抽屉），真值 0.36–0.44；还幻觉抽屉在关（D_φ q 到 +0.062）而真 q 冻在 −0.157。
+
+正反馈环：进入 OOD → cost 撒谎（越 OOD 越离谱）→ 优化器朝"假洼地"走 → 更 OOD。这也解释了用户观察到的"机械臂进入训练没见过的状态就乱动、不自纠"——**专家 BC 数据天然缺两样：OOD 状态 + 从坏状态恢复的演示**（协变量漂移）。
+
+闸2 用 oracle dynamics（渲染真 OOD 帧），闸3 用学到的 predictor（imagined emb 更贴流形，p9 insight），故闸2 的崩可能不完全 transfer——但 p5 compounding error 让长 horizon 仍会漂出 OOD。
+
+### 修复计划（待跑，两条腿缺一不可）
+
+- **Phase 0**：OOD-decode 探针——sim 里滚扰动动作，测 D_φ R² 随"偏离专家管道距离"的衰减，量化坐实分布假设。
+- **Phase 1**（悲观/模型侧）：集成 D_φ，分歧大处惩罚（MOPO/MOReL 式），让 cost 在未验证区不敢自信。
+- **Phase 2**（覆盖/数据侧）：DAgger——planner 自跑 → 收集真正走到的 OOD 状态 → sim 打真标签 → 重训 predictor + D_φ，对齐"planner 实际会去的分布"。
+- **Phase 3**：CEM trust region，限制单步跳出流形的幅度。
+- 之后：把手写 distance cost 升级成 distill 自 p6 100% privileged cost 的**学到的 cost-to-go `V(emb; z)`**（z=任务向量），系统正式成 model-based RL（TD-MPC2/Dreamer 路线），站在现有 world model 上而非从零。
+
+### 方向性结论：要不要转端到端 RL？
+
+**不转。** OOD 乱动是协变量漂移，是"固定/狭窄分布"的通病——离线 RL 用同一份 BC 数据照样崩（CQL/IQL 的悲观正则正是为此）。真正消掉它的是"自己采数据让训练分布=部署分布"（在线交互），这是**采数据方式**的属性，不是**模型类别**的属性。端到端 pixel RL 要上百万 env step + 稀疏奖励探索 + 重新手工 shaping，还放弃 world model 的采样效率与研究主线。正确路线 = world model + 学到的 value（RL 部分）+ DAgger 自采数据，即上面 Phase 1→2→value 的演化。
+
+### D_φ 的定位
+
+scaffold，不是终点：per-task、privileged-label 监督、固定 distance 形式。终点是通用 `V(emb; z)`。`load_decoder` 必须 `weights_only=False`（ckpt 存了 numpy cabinet 数组，PyTorch 2.6 默认会 UnpicklingError）。已删除旧 value-head 路线（`value/value_head.py` / `train_value.py` / `p8_value_mono.py` 等）。

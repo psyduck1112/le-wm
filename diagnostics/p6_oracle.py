@@ -32,7 +32,7 @@ from libero.libero.envs import OffScreenRenderEnv
 from _common import load_jepa, encode_frames, DrawerH5, RESULTS_DIR
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "value"))
-from value_head import GoalCost  # noqa: E402
+from state_decoder import load_decoder, decoded_cost  # noqa: E402
 
 WARMUP = 5
 
@@ -92,11 +92,10 @@ def lewm_costs(model, frames, eye_frames, goal_emb):
 
 
 @torch.no_grad()
-def value_costs(model, vhead, frames, eye_frames, goal_emb):
-    """Stage-2 cost: encode imagined finals -> C(emb, goal_emb) (learned cost-to-go)."""
+def decoded_costs(model, decoder, frames, eye_frames):
+    """Decode-then-cost: encode imagined finals -> D_φ -> p6 shaping (goal-image free)."""
     emb = encode_frames(model, np.stack(frames), np.stack(eye_frames)).cuda()  # (N,192)
-    g = goal_emb.cuda().unsqueeze(0).expand(emb.size(0), -1)
-    return vhead(emb, g).cpu().numpy()
+    return decoded_cost(emb, decoder).cpu().numpy()
 
 
 def privileged_cost(env, drawer):
@@ -126,15 +125,15 @@ def oracle_cem(env, model, s_t, goal_emb, cfg, cost_mode, drawer):
             obs = None
             for h in range(H):
                 obs, _, _, _ = env.step(cand[n, h])
-            if cost_mode in ("lewm", "value"):
+            if cost_mode in ("lewm", "decoded"):
                 finals.append(obs["agentview_image"])
                 finals_eye.append(obs["robot0_eye_in_hand_image"])   # 第二路相机 (raw, 与训练一致)
             else:  # privileged: shaped reach + close
                 drawer_vals.append(privileged_cost(env, drawer))
         if cost_mode == "lewm":
             costs = lewm_costs(model, finals, finals_eye, goal_emb)
-        elif cost_mode == "value":
-            costs = value_costs(model, cfg["vhead"], finals, finals_eye, goal_emb)
+        elif cost_mode == "decoded":
+            costs = decoded_costs(model, cfg["decoder"], finals, finals_eye)
         else:
             costs = np.asarray(drawer_vals)
         elite = np.argsort(costs)[:topk]
@@ -175,9 +174,9 @@ def run_episode(env, model, init_state, goal_emb, cfg, cost_mode, drawer):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--epoch", type=int, default=200)
-    ap.add_argument("--cost", choices=["lewm", "privileged", "value", "both"], default="both")
-    ap.add_argument("--value-ckpt", default=os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "value", "value_head.pt"))
+    ap.add_argument("--cost", choices=["lewm", "privileged", "decoded", "both"], default="both")
+    ap.add_argument("--decoder", default=os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "value", "state_decoder.pt"))
     ap.add_argument("--n-eval", type=int, default=8)
     ap.add_argument("--H", type=int, default=5)
     ap.add_argument("--N", type=int, default=150)
@@ -205,17 +204,14 @@ def main():
 
     modes = ["lewm", "privileged"] if args.cost == "both" else [args.cost]
 
-    vhead = None
-    if "value" in modes:
-        ck = torch.load(args.value_ckpt, map_location="cuda")
-        vhead = GoalCost(emb_dim=ck["emb_dim"]).cuda().eval()
-        vhead.load_state_dict(ck["state_dict"])
-        vhead.requires_grad_(False)
-        print(f"loaded value head <- {args.value_ckpt} (gamma={ck.get('gamma')})")
+    decoder = None
+    if "decoded" in modes:
+        decoder = load_decoder(args.decoder)
+        print(f"loaded D_φ decoder <- {args.decoder}")
 
     cfg = dict(H=args.H, N=args.N, n_iter=args.n_iter, topk=args.topk,
                var_scale=args.var_scale, receding=args.receding, budget=args.budget,
-               debug=args.debug, vhead=vhead, rng=np.random.default_rng(args.seed + 1))
+               debug=args.debug, decoder=decoder, rng=np.random.default_rng(args.seed + 1))
     if "privileged" in modes and drawer is None:
         print("WARNING: drawer joint not found, skipping privileged mode")
         modes = [m for m in modes if m != "privileged"]
