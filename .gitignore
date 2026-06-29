@@ -37,3 +37,8 @@ value/emb_cache.npz
 # 报告 *.md 仍可跟踪（交付物），内嵌的图随结果一起忽略。
 diagnostics/results/*
 !diagnostics/results/*.md
+cube_videos/
+frozen
+mujoco_rl_demo
+value/ood_detector.npz
+evalD_grasp_e30_embl2.log

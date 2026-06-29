@@ -7,8 +7,13 @@
 > 所有图由 `diagnostics/make_report_figs.py` 从保存的 `.npz` 重新生成（可复现）。
 > *All figures are regenerated from saved `.npz` artifacts via `make_report_figs.py` (reproducible).*
 
-**阅读顺序 / Reading order**：§0 系统总览 → §1 测试的原理与方法 → §2 结果 → §3 总结（瓶颈定位）→ §4 改进（已做的两项改动 + 下一步路线）。
+**阅读顺序 / Reading order**：§0 系统总览 → §1 测试的原理与方法 → §2 结果 → §3 总结（瓶颈定位）→ §4 改进（已做的改动 + 下一步路线）。
 *System overview → why/how we test → results → summary (where the bottleneck is) → improvements (what I changed + roadmap).*
+
+---
+
+> **📌 2026-06-22 更新 / Update**：§0–§3 的瓶颈诊断结论不变（cost 是瓶颈）。重大进展在 §4.2 **改动三**：后处理的冻结解码器 D_φ（闸2 = 0% FAIL，OOD 利用）已被**协同训练的 physics head** 取代——同一个 head 同时回流 encoder 与 predictor 梯度。**闸2 由 FAIL→PASS**（oracle 动力学下 phys cost 关上抽屉，e200 **5/8 = 62.5%**；lewm 仍 0%）。新增 `p6_oracle.py --cost-curve` 沿 planner 实轨直接量化"cost 是否撒谎"：phys ρ(plan,true)=**+1.00**（诚实），lewm=**−0.55**（撒谎）。脚本/产物全清单见 [`../INDEX.md`](../INDEX.md)。
+> *Bottleneck conclusion unchanged (cost is the bottleneck). Key progress in §4.2 **Change 3**: the post-hoc frozen decoder D_φ (gate-2 = 0% FAIL via OOD exploitation) is replaced by a **co-trained physics head** (one shared head back-props into both encoder and predictor). **Gate-2 flips FAIL→PASS** (under oracle dynamics the phys cost closes the drawer; lewm still 0%). New `p6_oracle.py --cost-curve` directly quantifies cost honesty along the planner's actual trajectory: phys ρ(plan,true)=+1.00 (honest), lewm=−0.55 (lying). Full script/artifact map: [`../INDEX.md`](../INDEX.md).*
 
 ---
 
@@ -84,7 +89,7 @@
 两种目标设定 / two goal settings：`same`（目标图取自同一轨迹，理想）与 **`cross`（目标图取自另一条轨迹——这正是真实 eval 的用法）**。
 *`same` (goal from the same trajectory, idealized) vs **`cross` (goal from a different trajectory — exactly how real eval works)**.*
 
-**方法 / Method**：`p2_cost_mono.py`（原版 cost）；`p2b_decoded_mono.py`（顺带测我们的新 cost D_φ，见 §4）。
+**方法 / Method**：`p2_cost_mono.py`（统合原版 cost / 解码 cost / phys-head cost / truth，旧 `p2b_decoded_mono.py` 已并入，见 §4）。
 
 ### 1.5 p5 — 多步想象的误差会滚雪球吗 / Does open-loop error compound?
 
@@ -151,8 +156,9 @@ Cost B — privileged (读模拟器真实状态 / reads true sim state):
 | **Perfect physics + perfect cost** (p6 privileged) | predictor→real sim, cost→true state | **100%** | harness + encoder are fine |
 | **Perfect physics + emb-L2 cost** (p6 lewm) | only the cost swapped back to original | **0%** | ← true cost=100%, original cost=0% |
 | Perfect physics + subgoal cost (p7) | goal split into waypoints | 0% | subgoals don't rescue it |
-| Perfect physics + decoded cost D_φ (§4 gate-2) | our new cost | 0% | OOD exploitation, see §4 |
-| **Real end-to-end** (p9) | all learned components | **~10%** | real deployment number |
+| Perfect physics + decoded cost D_φ (§4.2 change 2) | post-hoc frozen decoder | 0% | OOD exploitation (FAIL) |
+| **Perfect physics + phys-head cost** (§4.2 change 3) | co-trained head, replaces D_φ | **62.5%** | gate-2 FAIL→PASS (e200, 5/8) |
+| **Real end-to-end** (p9) | all learned components | **~10%** | real deployment number (闸3 blocked by fk5) |
 
 **一句话 / One line**：**瓶颈是 cost，不是编码器、不是预测器、不是数据。** 给系统一个"读真实状态"的完美 cost，同样的规划框架就 100% 完成；把 cost 换回"看目标图算距离"立刻掉到 0%。
 *The bottleneck is the cost — not the encoder, predictor, or data. A perfect state-reading cost solves it (100%) with the same harness; switching back to the goal-image cost drops it to 0%.*
@@ -210,7 +216,7 @@ Cost B — privileged (读模拟器真实状态 / reads true sim state):
 *Two native figures contrast bad vs good cost shape: `p2_cost_mono.png` = original emb-L2 cost along successful trajectories (**wanders, no descent** → bad); `p2b_decoded_mono.png` = decoded D_φ cost (**monotone descent** → good, cf. §4.2). x-axis = task progress.*
 
 ![p2](p2_cost_mono.png)
-![p2b](p2b_decoded_mono.png)
+![p2b](archive/p2b_decoded_mono.png)
 
 **【数据 / Data】**
 
@@ -305,7 +311,7 @@ p9   真实端到端 ~10%            = 坏 cost 下的真实表现 / reality und
 
 ## 4. 改进 / Improvements
 
-### 4.1 我已做的两项改动 / Two Changes I Already Made
+### 4.1 我已做的三项改动 / Three Changes I Already Made
 
 #### 改动一：加入第一人称（腕部）相机 / Change 1: add a wrist (eye-in-hand) camera
 
@@ -400,6 +406,36 @@ enter OOD → D_φ lies (worse the further out) → optimizer chases the fake va
 
 **D_φ 的定位 / Positioning**：它是**过渡脚手架**(per-task、靠特权标签监督、固定距离形式),不是终点。终点是 distill 自 §2.6 那个 100% cost 的、通用的**学到的 cost-to-go `V(emb; z)`**。 *D_φ is scaffolding, not the destination; the destination is a general learned cost-to-go `V(emb; z)` distilled from the 100% privileged cost.*
 
+#### 改动三：把 D_φ 升级成协同训练的 physics head（闸2 FAIL→PASS）/ Change 3: co-trained physics head (gate-2 FAIL→PASS)
+
+**思路 / Motivation**：改动二的 D_φ 是**事后**在**冻结** emb 上训的解码器——它只继承了 encoder 现有的几何，并没**回头改造** encoder。闸2 崩在 OOD：CEM 把臂推到训练没见过的姿势，D_φ 乱估、被钻空子（corr(真,估)=−0.557）。关键认识：**问题不是 D_φ 不准（BC 流形上 R²~0.98），而是任务相关的方向在 latent 里份量太小、且 SIGReg 各向同性把方差摊平**，cost 一离开窄管就失稳。于是把解码从"事后"改成"协同训练"，让监督信号**直接回流改造 encoder 与 predictor**。
+*D_φ (change 2) was trained post-hoc on a frozen emb, inheriting the encoder's geometry without reshaping it. Gate-2 failed in OOD. The fix: turn decoding from post-hoc into co-training so the supervision back-props into the encoder and predictor themselves.*
+
+**方法 / Method**（`jepa.py` + `train.py`）：
+- **一个共享 physics head**：`MLP(192 → 256 → 9)`（LayerNorm+GELU），解码 proprio(8: eef_pos3 + axis_angle3 + gripper2) + drawer_qpos(1)。
+  *One shared head `MLP(192→256→9)` decoding proprio(8) + drawer_q(1).*
+- **同时作用在 emb 和 pred_emb 上**：同一个 head 既解码 encoder 的 emb（梯度→encoder），又解码 predictor 的 pred_emb（梯度→predictor）。即把"物理可解码"作为**辅助 loss** 加进主训练，而不是事后补一个读出器。
+  *Applied to BOTH emb (→encoder grad) and pred_emb (→predictor grad) via the SAME head — physics-decodability becomes an auxiliary training loss, not a post-hoc readout.*
+- **cost 形式不变**：仍用 §2.6 的 privileged 公式 `‖head_eef − cabinet‖ + 30·|head_q − closed|`，goal-image-free。
+
+**结果 / Result**：
+
+| 检验 / Gate | D_φ（改动二）| physics head（改动三）|
+|---|---|---|
+| 闸1 on-tube 单调性 `p2_cost_mono` | PASS（ρ=−0.78）| **PASS**（phys ρ≈−0.93≈truth）|
+| 闸2 oracle 动力学闭环 `p6_oracle` | **FAIL 0/8** | **PASS 5/8 = 62.5%**（e200, n=8；baseline 真机 MPC 10%）|
+| cost-curve ρ(plan,true) `--cost-curve` | corr(真,估)=−0.557（撒谎）| 成功 +0.95~1.00；失败仅掉到 +0.15~0.45（**不变负=不撒谎**）|
+
+**新工具 `p6_oracle.py --cost-curve` / New tool**：沿 planner **实际走过的轨迹**逐帧记两条 cost——planner 用的 cost vs 读真实状态的 privileged cost——再算 Spearman ρ。这是第一次在**部署轨迹**上直接量化"cost 有没有撒谎"：
+*Along the planner's ACTUAL rollout, record planner-cost vs true privileged-cost per step, then Spearman ρ. First direct measurement of cost honesty on a deployment trajectory:*
+- **phys**：ρ(plan,true)=**+1.00** —— planner 觉得在变好时，真相也在变好（诚实）→ 臂去关抽屉、成功。
+- **lewm**：ρ=**−0.55** —— planner cost 在降而真 cost 在升（撒谎，复刻 D_φ 的 −0.557 签名）→ 臂被推离抽屉（eef 0.37→0.49，drawer_q 冻在 −0.140 全程）。加预算 100→200 也救不了：是**方向**错（坏 cost），不是预算不够。
+
+**两点诚实限定 / Two honest caveats**：
+- ① 闸2 在 e200（收敛终点）测得 **5/8 = 62.5%**（n=8），不再是 e177 1/1 那种小样本。3 条失败**全部卡在 budget=100 停住**（不是被推走），cost-curve ρ 掉到 +0.15~0.45 但**不变负**——即 cost 不撒谎、只是 off-tube 失去分辨率，失败根因是覆盖不足而非 reward-hack，正对应 §4.2 的 DAgger 那条腿。仍是 oracle 动力学（闸2 = cost 质量上界）；闸3 真机 p9 受 fk5 35维 action 接线阻塞。
+- ② **on-tube 改善不全等于部署可用**。head 把 lewm 的 on-tube 单调性也间接抬了（+0.02→−0.42），但那是"专家走过的好路"上的；off-tube 的 cost-curve 显示 lewm 仍 −0.55 撒谎。**表征（可解码性）确实变好，度量（L2=任务距离）结构上没变好**——这正是为什么终点是注入任务的学到 value `V(emb; z)`，而非继续堆 emb-L2。
+  *Representation (decodability) improved; the metric (L2 = task distance) structurally did not. This is why the endpoint is a learned, task-conditioned value `V(emb; z)`, not more emb-L2.*
+
 ### 4.2 下一步路线图 / Roadmap
 
 两条腿缺一不可：**覆盖（补数据）+ 悲观（让 cost 在没把握处不敢自信）**。
@@ -420,24 +456,35 @@ enter OOD → D_φ lies (worse the further out) → optimizer chases the fake va
 
 ## 附录 A：脚本与产物索引 / Appendix A: Scripts & Artifacts
 
+> 完整权威清单（含 OOD 证据基 p10–p14、归档物）见 [`../INDEX.md`](../INDEX.md)。下表为本报告引用的核心脚本。
+> *Full authoritative list (incl. OOD evidence base p10–p14, archived items) in [`../INDEX.md`](../INDEX.md); below = core scripts cited here.*
+
 | Probe | Script | Results |
 |---|---|---|
 | p0 health check | `p0_sanity.py` | `results/p0_sanity.npz` |
-| p2 cost monotonicity | `p2_cost_mono.py` | `results/p2_cost_mono.{png,npz}` |
-| gate-1 decoded-cost monotonicity | `p2b_decoded_mono.py` | `results/p2b_decoded_mono.{png,npz,log}` |
-| p3 proprio probe | `p3_probe.py` | `results/p3_probe.{png,npz}` |
-| p3b reach probe | `p3b_reach.py` | `results/p3b_reach.{png,npz,log}` |
-| p3c wrist-cam ablation | `p3c_cam_ablation.py` | `results/p3c_cam_ablation.{npz,log}` + report |
+| p2 cost monotonicity (统合 p2b) | `p2_cost_mono.py` | `results/cost_mono_phys.png`, `results/p2_cost_mono.{png,npz}` |
+| p3 / p3b / p3c decode probe | `probe_decode.py` (`--target proprio\|full`, `--compare-cam`；统合旧 p3/p3b/p3c) | `results/p3_probe.*`, `results/p3b_reach.*`, `results/p3c_cam_ablation.*` + report |
 | p4 BC baseline | `p4_bc_eval.py` | `results/p4_bc.log` |
 | p5 compounding error | `p5_openloop.py` | `results/p5_openloop.{png,npz}` |
-| p6 oracle physics | `p6_oracle.py` | `results/p6_oracle.{log,npz}` |
-| p6d OOD exploitation | `p6d_video_dual.py` | `results/p6d_dual.npz` + video |
+| p6 oracle physics (+`--cost-curve`) | `p6_oracle.py` | `results/p6_oracle_phys.{log,npz}`, `results/costcurve_e177/` |
 | p7 subgoal rescue | `p7_subgoal.py` | `results/p7_subgoal.{log,npz}` |
 | p9 real end-to-end | `p9_real_mpc.py` | `results/p9_real_mpc*.log` |
+| p15 attention rollout | `p15_attention.py` | `results/p15_attention_phys_ep0.png` |
 | **all report figures** | `make_report_figs.py` | `results/report_figs/fig1..5.png` |
 
-## 附录 B：可看的视频 / Appendix B: Videos（`results/p6c_videos/`）
+> 归档 / Archived（全部移入 `diagnostics/archive/`，产物在 `results/archive/`，完整清单见 [`../INDEX.md`](../INDEX.md)）：
+> - D_φ 线：`p2b_decoded_mono.py`、`p6c_video.py`、`p6d_video_dual.py`（被 `p2_cost_mono.py` / `p6_oracle.py --cost-curve` + phys 视频取代）。
+> - D_φ OOD/pessimism 簇：`p10_ood_detector.py`、`p11_ood_probe.py`、`p11_plot.py`、`p12_pessimistic.py`、`p13_knn.py`、`p14_source_ablation.py`（结论见 §4.2）。
+> - decode-probe 原始三脚本：`p3_probe.py`、`p3b_reach.py`、`p3c_cam_ablation.py`（统合进 `probe_decode.py`，保留备查）。
 
-- `privileged_ep0_SUCCESS.mp4`：完美 cost，19 步关上抽屉。 *Perfect cost, drawer closed in 19 steps.*
-- `decoded_ep0_fail.mp4`：D_φ cost，手臂被推离抽屉。 *D_φ cost, arm pushed away from the drawer.*
-- `decoded_dual_ep0_fail.mp4`：双层叠加，黄=真实 reach/开合，红=D_φ 估计，可直接看到"估计与真相分叉"。 *Overlay: yellow = true, red = D_φ estimate — watch them diverge.*
+## 附录 B：可看的视频 / Appendix B: Videos
+
+**phys-head 期（当前）/ phys-head era (current)** — `results/p16_videos/`, `results/costcurve_e177/`
+- `phys_ep00_SUCCESS.mp4` / `costcurve_e177/phys_phys_ep00_SUCCESS.mp4`：phys cost 关上抽屉。 *phys cost closes the drawer.*
+- `costcurve_e177/lewm_phys_ep00_fail.mp4`：lewm cost，臂被推离。 *lewm cost, arm pushed away.*
+- `costcurve_e177/costcurve_phys_*.png`：plan-cost vs true-cost 沿实轨（phys +1.0 诚实 / lewm −0.55 撒谎）。
+
+**D_φ 期（历史，归档对照）/ D_φ era (historical)** — `results/p6c_videos/`
+- `privileged_ep0_SUCCESS.mp4`：完美 cost，19 步关上抽屉。 *Perfect cost, 19 steps.*
+- `decoded_ep0_fail.mp4`：D_φ cost，手臂被推离抽屉。 *D_φ cost, arm pushed away.*
+- `decoded_dual_ep0_fail.mp4`：双层叠加，黄=真实，红=D_φ 估计，看"估计与真相分叉"。 *Overlay: yellow=true, red=D_φ est — watch them diverge.*

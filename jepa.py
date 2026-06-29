@@ -12,11 +12,12 @@ class JEPA(nn.Module):
 
     def __init__(
         self,
-        encoder, # ViT-Tiny 
+        encoder, # ViT-Tiny
         predictor, # MLP
         action_encoder, # Embedder
         projector=None,  # ARPredictor
         pred_proj=None, # MLP
+        task_head=None, # MLP: emb -> 物理量 (eef/drawer...), 联合训练塑形 latent
     ):
         super().__init__()
 
@@ -25,6 +26,7 @@ class JEPA(nn.Module):
         self.action_encoder = action_encoder
         self.projector = projector or nn.Identity()
         self.pred_proj = pred_proj or nn.Identity()
+        self.task_head = task_head  # None -> 不启用物理监督
 
     def encode(self, info):
         """Encode observations and actions into embeddings.
@@ -63,6 +65,15 @@ class JEPA(nn.Module):
         preds = self.pred_proj(rearrange(preds, "b t d -> (b t) d"))
         preds = rearrange(preds, "(b t) d -> b t d", b=emb.size(0))
         return preds
+
+    def predict_state(self, emb):
+        """物理 task head: 从 emb 解码物理量 (归一化空间).
+        emb: (B, T, D) -> (B, T, P). 同一个 head 同时作用于 encoder 的 emb 和
+        predictor 的 pred_emb, 让两者的 latent 都把物理信息编码进去 (梯度回流).
+        """
+        b = emb.size(0)
+        out = self.task_head(rearrange(emb, "b t d -> (b t) d"))
+        return rearrange(out, "(b t) p -> b t p", b=b)
 
     ####################
     ## Inference only ##

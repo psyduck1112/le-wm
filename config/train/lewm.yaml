@@ -63,3 +63,9 @@ loss:
     kwargs:
       knots: 17
       num_proj: 1024
+  aux:
+    weight: 0.25         # λ_aux: 物理监督权重. 0.25 使 aux 贡献与 pred_loss 同量级 (见设计)
+    hidden_dim: 256      # task head 中间层宽度
+    label_keys:          # 监督哪些物理列 (顺序 = head 输出通道顺序). 不能叫 keys (与 dict.keys 冲突)
+      - proprio          # 8: eef_pos(3)+axis-angle(3)+gripper(2)
+      - drawer_qpos      # 1: 抽屉关节

@@ -1,0 +1,32 @@
+# cube + 物理 task head co-train. 从官方 cube 权重初始化, 微调.
+# 跑: python train.py --config-name=lewm_cube
+defaults:
+  - lewm                       # 继承 lewm.yaml 全部默认
+  - override /data: ogb_cube_phys
+  - _self_                     # 下面的覆盖最后生效
+
+output_model_name: lewm_cube_phys_grasp   # 区别于纯 cube_pos 的 lewm_cube_phys (e34 baseline)
+
+# 从官方 cube object ckpt 初始化 encoder/predictor/action_encoder/projector/pred_proj
+# (task_head 随机, strict=False). null -> 从头训.
+init_from: /home/yikang/stable-wm/cube/lewm_object.ckpt
+
+trainer:
+  max_epochs: 100              # aux 收敛快, 可中途 eval 早停
+
+loss:
+  aux:
+    weight: 0.25
+    hidden_dim: 256
+    # decode 目标: 方块 + 抓取 proprio (训练塑形; COST 只切前 3 维 cube). cube 必须排第一.
+    label_keys:
+      - privileged_block_0_pos # 方块 3D 位置 (3)  ← dims 0:3, cost 用
+      - proprio_effector_pos   # eef 3D 位置 (3)
+      - proprio_gripper_opening # 夹爪开度 (1)
+      - proprio_gripper_contact # 夹爪接触力 (1)
+    # -> head 192 -> 256 -> 8
+
+wandb:
+  config:
+    project: lewm_cube_phys
+    name: ${output_model_name}

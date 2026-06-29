@@ -113,3 +113,66 @@ class DrawerH5:
 
     def close(self):
         self.f.close()
+
+
+# ============================================================================
+# physics-head model (M-phys era): a co-trained task_head replaces the old D_φ.
+# These helpers are shared by the oracle-MPC eval (p6_oracle) and the cost
+# monotonicity viz (p2_cost_mono), so they live here instead of being copied.
+# ============================================================================
+
+PHYS_DIR = "/home/yikang/stable-wm/outputs/phys_fk5"
+PHYS_NAME = "lewm_libero_bc_drawer_phys"
+# the training ConcatDataset (v2 + perturb + spectrum); used to recompute the
+# label z-score that train.py applied, so we can de-normalize task_head outputs.
+DATA_FILES = [
+    "/home/yikang/git/le-wm/data/libero_bc_drawer_v2.h5",
+    "/home/yikang/git/le-wm/data/libero_bc_drawer_perturb.h5",
+    "/home/yikang/git/le-wm/data/libero_bc_drawer_perturb_spectrum.h5",
+]
+LABEL_COLS = [("proprio", 8), ("drawer_qpos", 1)]   # task_head label layout (P=9)
+
+
+def load_phys(epoch: int = 65, device: str = "cuda"):
+    """Load the phys JEPA object DIRECTLY (keeps the co-trained task_head).
+
+    load_jepa/AutoCostModel rebuilds the model WITHOUT task_head and points at the
+    old v2 ckpt, so for the phys model we unpickle the _object.ckpt straight."""
+    path = f"{PHYS_DIR}/{PHYS_NAME}_epoch_{epoch}_object.ckpt"
+    m = torch.load(path, map_location=device, weights_only=False).to(device).eval()
+    m.requires_grad_(False)
+    assert getattr(m, "task_head", None) is not None, f"{path} has no task_head"
+    return m
+
+
+def compute_denorm(files=DATA_FILES, device: str = "cuda"):
+    """Per-dim z-score μ/σ over the training ConcatDataset, matching
+    utils.get_column_normalizer (NaN-row filtered per column, std ddof=1).
+    Returns μ, σ of shape (9,) ordered [proprio(8), drawer_qpos(1)]."""
+    mus, sds = [], []
+    for col, _dim in LABEL_COLS:
+        arr = np.concatenate([h5py.File(fp, "r")[col][:] for fp in files], 0)
+        arr = arr[~np.isnan(arr).any(1)]
+        mus.append(arr.mean(0))
+        sds.append(arr.std(0, ddof=1))
+    mu = torch.tensor(np.concatenate(mus), dtype=torch.float32, device=device)
+    sd = torch.tensor(np.concatenate(sds), dtype=torch.float32, device=device).clamp_min(1e-6)
+    return mu, sd
+
+
+def phys_decode(model, emb, mu, sd):
+    """task_head decode + de-normalize. emb (N,192) -> (eef_pos (N,3), drawer_qpos (N,))."""
+    real = model.task_head(emb) * sd + mu          # (N,9) real units
+    return real[:, :3], real[:, 8]
+
+
+def compute_action_norm(files=DATA_FILES, device: str = "cuda"):
+    """Per-dim z-score μ/σ of the 7-d raw action over the training ConcatDataset,
+    matching utils.get_column_normalizer (NaN-row filtered, std ddof=1). The model's
+    action_encoder was trained on NORMALIZED actions, so any rollout/eval must apply
+    this BEFORE stacking into the 35-d macro action. Returns μ, σ of shape (7,)."""
+    arr = np.concatenate([h5py.File(fp, "r")["action"][:] for fp in files], 0)
+    arr = arr[~np.isnan(arr).any(1)]
+    mu = torch.tensor(arr.mean(0), dtype=torch.float32, device=device)
+    sd = torch.tensor(arr.std(0, ddof=1), dtype=torch.float32, device=device).clamp_min(1e-6)
+    return mu, sd

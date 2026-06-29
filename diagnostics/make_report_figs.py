@@ -27,7 +27,10 @@ GREEN, RED, BLUE, GREY = "#2ca02c", "#d62728", "#1f77b4", "#888888"
 
 
 def load(f):
-    return np.load(os.path.join(R, f), allow_pickle=True)
+    p = os.path.join(R, f)
+    if not os.path.exists(p):          # archived artifacts fall back to results/archive/
+        p = os.path.join(R, "archive", f)
+    return np.load(p, allow_pickle=True)
 
 
 # ---------- fig1: success-rate headline ----------
