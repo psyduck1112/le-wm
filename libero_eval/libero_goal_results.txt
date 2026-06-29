@@ -1,0 +1,252 @@
+
+==== CONFIG ====
+cache_dir: null
+solver:
+  _target_: stable_worldmodel.solver.CEMSolver
+  model: ???
+  batch_size: 1
+  num_samples: 300
+  var_scale: 1.0
+  n_steps: 30
+  topk: 30
+  device: cuda
+  seed: ${seed}
+world:
+  env_name: libero-goal-lewm-v0
+  num_envs: 1
+  max_episode_steps: 600
+  history_size: 3
+  frame_skip: 1
+  goal_conditioned: true
+  demo_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5
+  task_id: 0
+dataset:
+  keys_to_cache:
+  - action
+  - proprio
+seed: 42
+policy: random
+plan_config:
+  horizon: 5
+  receding_horizon: 5
+  action_block: 1
+eval:
+  num_eval: 1
+  img_size: 224
+  dataset_name: libero_goal
+output:
+  filename: libero_goal_results.txt
+
+==== RESULTS ====
+metrics: {'episode_count': 1, 'success_rate': 0.0, 'episode_successes': array([0.]), 'seeds': array([225870791], dtype=int32)}
+evaluation_time: 15.5s
+
+==== CONFIG ====
+cache_dir: null
+solver:
+  _target_: stable_worldmodel.solver.CEMSolver
+  model: ???
+  batch_size: 1
+  num_samples: 10
+  var_scale: 1.0
+  n_steps: 5
+  topk: 3
+  device: cuda
+  seed: ${seed}
+world:
+  env_name: libero-goal-lewm-v0
+  num_envs: 1
+  max_episode_steps: 600
+  history_size: 3
+  frame_skip: 1
+  goal_conditioned: true
+  demo_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5
+  task_id: 0
+dataset:
+  keys_to_cache:
+  - action
+  - proprio
+seed: 42
+policy: lewm
+plan_config:
+  horizon: 5
+  receding_horizon: 5
+  action_block: 1
+eval:
+  num_eval: 1
+  img_size: 224
+  dataset_name: libero_goal
+output:
+  filename: libero_goal_results.txt
+
+==== RESULTS ====
+metrics: {'episode_count': 1, 'success_rate': 0.0, 'episode_successes': array([0.]), 'seeds': array([1375676384], dtype=int32)}
+evaluation_time: 38.3s
+
+==== CONFIG ====
+cache_dir: null
+solver:
+  _target_: stable_worldmodel.solver.CEMSolver
+  model: ???
+  batch_size: 1
+  num_samples: 10
+  var_scale: 1.0
+  n_steps: 5
+  topk: 3
+  device: cuda
+  seed: ${seed}
+world:
+  env_name: libero-goal-lewm-v0
+  num_envs: 1
+  max_episode_steps: 600
+  history_size: 3
+  frame_skip: 1
+  goal_conditioned: true
+  demo_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5
+  task_id: 0
+dataset:
+  keys_to_cache:
+  - action
+  - proprio
+seed: 42
+policy: lewm
+plan_config:
+  horizon: 5
+  receding_horizon: 5
+  action_block: 1
+eval:
+  num_eval: 1
+  img_size: 224
+  dataset_name: libero_goal
+output:
+  filename: libero_goal_results.txt
+
+==== RESULTS ====
+metrics: {'episode_count': 1, 'success_rate': 0.0, 'episode_successes': array([0.]), 'seeds': array([2104779535], dtype=int32)}
+evaluation_time: 40.7s
+
+==== CONFIG ====
+cache_dir: null
+solver:
+  _target_: stable_worldmodel.solver.CEMSolver
+  model: ???
+  batch_size: 300
+  num_samples: 10
+  var_scale: 1.0
+  n_steps: 10
+  topk: 10
+  device: cuda
+  seed: ${seed}
+world:
+  env_name: libero-goal-lewm-v0
+  num_envs: 1
+  max_episode_steps: 600
+  history_size: 3
+  frame_skip: 1
+  goal_conditioned: true
+  demo_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5
+  task_id: 0
+dataset:
+  keys_to_cache:
+  - action
+  - proprio
+seed: 42
+policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97
+plan_config:
+  horizon: 5
+  receding_horizon: 5
+  action_block: 1
+eval:
+  num_eval: 1
+  img_size: 224
+  dataset_name: libero_goal
+output:
+  filename: libero_goal_results.txt
+
+==== RESULTS ====
+metrics: {'episode_count': 1, 'success_rate': 0.0, 'episode_successes': array([0.]), 'seeds': array([1116142881], dtype=int32)}
+evaluation_time: 47.4s
+
+==== CONFIG ====
+cache_dir: null
+solver:
+  _target_: stable_worldmodel.solver.CEMSolver
+  model: ???
+  batch_size: 300
+  num_samples: 100
+  var_scale: 1.0
+  n_steps: 10
+  topk: 10
+  device: cuda
+  seed: ${seed}
+world:
+  env_name: libero-goal-lewm-v0
+  num_envs: 1
+  max_episode_steps: 600
+  history_size: 3
+  frame_skip: 1
+  goal_conditioned: true
+  demo_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5
+  task_id: 0
+dataset:
+  keys_to_cache:
+  - action
+  - proprio
+seed: 42
+policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97
+plan_config:
+  horizon: 5
+  receding_horizon: 1
+  action_block: 1
+eval:
+  num_eval: 1
+  img_size: 224
+  dataset_name: libero_goal
+output:
+  filename: libero_goal_results.txt
+
+==== RESULTS ====
+metrics: {'episode_count': 1, 'success_rate': 0.0, 'episode_successes': array([0.]), 'seeds': array([1415331942], dtype=int32)}
+evaluation_time: 944.3s
+
+==== CONFIG ====
+cache_dir: null
+solver:
+  _target_: stable_worldmodel.solver.CEMSolver
+  model: ???
+  batch_size: 300
+  num_samples: 300
+  var_scale: 1.0
+  n_steps: 30
+  topk: 30
+  device: cuda
+  seed: ${seed}
+world:
+  env_name: libero-goal-lewm-v0
+  num_envs: 1
+  max_episode_steps: 600
+  history_size: 3
+  frame_skip: 1
+  goal_conditioned: true
+  demo_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5
+  task_id: 0
+dataset:
+  keys_to_cache:
+  - action
+  - proprio
+seed: 42
+policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97
+plan_config:
+  horizon: 7
+  receding_horizon: 1
+  action_block: 1
+eval:
+  num_eval: 1
+  img_size: 224
+  dataset_name: libero_goal
+output:
+  filename: libero_goal_results.txt
+
+==== RESULTS ====
+metrics: {'episode_count': 1, 'success_rate': 0.0, 'episode_successes': array([0.]), 'seeds': array([476703142], dtype=int32)}
+evaluation_time: 7788.6s

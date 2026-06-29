@@ -1,0 +1,36 @@
+defaults:
+  - launcher: local
+  - solver: cem
+  - _self_
+
+world:
+  env_name: libero-goal-lewm-v0
+  num_envs: 1
+  max_episode_steps: 50
+  history_size: 3        # must match training config
+  frame_skip: 1
+  goal_conditioned: True
+  # passed to LiberoGoalLEwMEnv
+  demo_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5     # path to training HDF5, e.g. /root/autodl-tmp/stable-wm/libero_goal.h5
+  task_id: 0             # 0-9, which of the 10 libero_goal tasks
+
+dataset:
+  keys_to_cache:
+    - action
+    - proprio
+
+seed: 42
+policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97        # path to _object.ckpt, or "random" for baseline
+
+plan_config:
+  horizon: 5
+  receding_horizon: 5
+  action_block: 1        # frameskip=1 in training
+
+eval:
+  num_eval: 20
+  img_size: 224
+  dataset_name: libero_goal    # training HDF5, used for normalization stats only
+
+output:
+  filename: libero_goal_results.txt

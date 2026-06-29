@@ -1,0 +1,55 @@
+defaults:
+  - launcher: local
+  - solver: cem
+  - _self_
+
+world:
+  env_name: swm/OGBScene-v0
+  num_envs: ${eval.num_eval}
+  max_episode_steps: 2 * eval.eval_budget  # set at runtime to 2 * eval.eval_budget
+  history_size: 1
+  frame_skip: 2            # matches training (config/train/data/ogbscene_drawer.yaml)
+  env_type: scene
+  ob_type: states
+  permute_blocks: True
+  multiview: False
+  width: 224
+  height: 224
+  visualize_info: False
+  terminate_at_goal: True
+
+dataset:
+  stats: ${eval.dataset_name}
+  keys_to_cache:
+    - action
+    - observation
+
+seed: 42
+policy: /home/yikang/stable-wm/outputs/lewm_ogbscene_drawer_epoch_100
+
+plan_config:
+  horizon: 5              # plan 5 macro-steps ahead
+  receding_horizon: 5     # re-plan every 5 macro-steps
+  action_block: 2         # = frame_skip; each macro-action repeated 2 raw env steps
+
+# evaluation from dataset (replay from arbitrary start frame, goal = pixels[t+offset])
+eval:
+  num_eval: 5
+  goal_offset_steps: 15   # goal is 20 raw frames ahead of start
+  eval_budget: 30         # up to 30 macro-steps (= 60 raw frames) to reach goal
+  img_size: 64
+  dataset_name: ogbench/scene_drawer_eval
+  callables:
+    # restore env to dataset starting state (qpos + qvel + button lock state)
+    - method: set_state
+      args:
+        qpos:
+          value: qpos
+        qvel:
+          value: qvel
+        button_states:
+          value: button_states
+
+output:
+  filename: ogb_scene_drawer_results.txt
+

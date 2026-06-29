@@ -1,0 +1,178 @@
+"""Shared utilities for le-wm LIBERO diagnostics (LIBERO_DIAGNOSTICS.md).
+
+All probes load the SAME frozen le-wm world model and apply the SAME image
+preprocessing as training (ToImage -> float scale -> ImageNet norm -> Resize 224),
+so the encoder stays in-distribution. Never edit this to diverge from training.
+"""
+import os
+import sys
+
+os.environ.setdefault("MUJOCO_GL", "egl")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import h5py
+import numpy as np
+import torch
+from torchvision.transforms import v2 as T
+import stable_pretraining as spt
+import stable_worldmodel as swm
+
+H5_PATH = "/home/yikang/git/le-wm/data/libero_bc_drawer_v2.h5"   # M0: 双相机 + drawer_qpos
+CKPT_DIR = "/home/yikang/stable-wm/outputs"
+MODEL_NAME = "lewm_libero_bc_drawer_v2"   # M1: 双相机重训
+RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+EMB_DIM = 192   # projector 输出仍 192 (两路 CLS 拼 384 -> 192)
+HISTORY = 3
+
+# image transform IDENTICAL to bc_drawer_eval.py / training pipeline
+_PIX_TF = T.Compose([
+    T.ToImage(),
+    T.ToDtype(torch.float32, scale=True),
+    T.Normalize(**spt.data.dataset_stats.ImageNet),
+    T.Resize(224),
+])
+
+
+def ckpt_prefix(epoch: int = 200) -> str:
+    return f"{CKPT_DIR}/{MODEL_NAME}_epoch_{epoch}"
+
+
+def load_jepa(epoch: int = 200, device: str = "cuda"):
+    """Load frozen JEPA world model exposing encode/predict/rollout/get_cost."""
+    model = swm.policy.AutoCostModel(ckpt_prefix(epoch))
+    model = model.to(device).eval()
+    model.requires_grad_(False)
+    model.interpolate_pos_encoding = True
+    return model
+
+
+def transform_pixels(frames: np.ndarray) -> torch.Tensor:
+    """(N,H,W,3) uint8 -> (N,3,224,224) float, training-matched preprocessing."""
+    return torch.stack([_PIX_TF(f) for f in frames])
+
+
+@torch.no_grad()
+def encode_frames(model, frames: np.ndarray, eye_frames: np.ndarray = None,
+                  device: str = "cuda", batch_size: int = 256) -> torch.Tensor:
+    """Encode (N,H,W,3) uint8 frames -> (N, EMB_DIM) embeddings (on CPU).
+
+    eye_frames: 可选腕部相机 (N,H,W,3). M1 的 v2 双相机模型必须传 (否则
+    encode 只出 192 维 CLS, 与 projector 的 384 输入不匹配会报错).
+    """
+    embs = []
+    for i in range(0, len(frames), batch_size):
+        pix = transform_pixels(frames[i:i + batch_size]).to(device)  # (b,3,224,224)
+        info = {"pixels": pix.unsqueeze(1)}  # (b,1,3,224,224)
+        if eye_frames is not None:
+            eye = transform_pixels(eye_frames[i:i + batch_size]).to(device)
+            info["eye_in_hand"] = eye.unsqueeze(1)
+        out = model.encode(info)
+        embs.append(out["emb"][:, 0].float().cpu())  # (b, D)
+    return torch.cat(embs, 0)
+
+
+class DrawerH5:
+    """Episode-indexed access to libero_bc_drawer.h5."""
+
+    def __init__(self, path: str = H5_PATH):
+        self.f = h5py.File(path, "r")
+        self.ep_offset = self.f["ep_offset"][:]
+        self.ep_len = self.f["ep_len"][:]
+        self.n_ep = len(self.ep_offset)
+
+    def episode_slice(self, ep: int) -> slice:
+        o, l = int(self.ep_offset[ep]), int(self.ep_len[ep])
+        return slice(o, o + l)
+
+    def pixels(self, ep: int) -> np.ndarray:
+        return self.f["pixels"][self.episode_slice(ep)]
+
+    def actions(self, ep: int) -> np.ndarray:
+        return self.f["action"][self.episode_slice(ep)]
+
+    def proprio(self, ep: int) -> np.ndarray:
+        return self.f["proprio"][self.episode_slice(ep)]
+
+    def eye_in_hand(self, ep: int) -> np.ndarray:
+        return self.f["eye_in_hand"][self.episode_slice(ep)]
+
+    def drawer_qpos(self, ep: int) -> np.ndarray:
+        """(L,1) 抽屉关节真值 (探测3 回归靶子, 不进模型)."""
+        return self.f["drawer_qpos"][self.episode_slice(ep)]
+
+    def goal_frame(self, ep: int) -> np.ndarray:
+        """Last frame of the episode = drawer-closed goal image (agentview)."""
+        o, l = int(self.ep_offset[ep]), int(self.ep_len[ep])
+        return self.f["pixels"][o + l - 1]
+
+    def goal_eye_frame(self, ep: int) -> np.ndarray:
+        """Last frame, eye_in_hand (goal 一侧第二路相机)."""
+        o, l = int(self.ep_offset[ep]), int(self.ep_len[ep])
+        return self.f["eye_in_hand"][o + l - 1]
+
+    def close(self):
+        self.f.close()
+
+
+# ============================================================================
+# physics-head model (M-phys era): a co-trained task_head replaces the old D_φ.
+# These helpers are shared by the oracle-MPC eval (p6_oracle) and the cost
+# monotonicity viz (p2_cost_mono), so they live here instead of being copied.
+# ============================================================================
+
+PHYS_DIR = "/home/yikang/stable-wm/outputs/phys_fk5"
+PHYS_NAME = "lewm_libero_bc_drawer_phys"
+# the training ConcatDataset (v2 + perturb + spectrum); used to recompute the
+# label z-score that train.py applied, so we can de-normalize task_head outputs.
+DATA_FILES = [
+    "/home/yikang/git/le-wm/data/libero_bc_drawer_v2.h5",
+    "/home/yikang/git/le-wm/data/libero_bc_drawer_perturb.h5",
+    "/home/yikang/git/le-wm/data/libero_bc_drawer_perturb_spectrum.h5",
+]
+LABEL_COLS = [("proprio", 8), ("drawer_qpos", 1)]   # task_head label layout (P=9)
+
+
+def load_phys(epoch: int = 65, device: str = "cuda"):
+    """Load the phys JEPA object DIRECTLY (keeps the co-trained task_head).
+
+    load_jepa/AutoCostModel rebuilds the model WITHOUT task_head and points at the
+    old v2 ckpt, so for the phys model we unpickle the _object.ckpt straight."""
+    path = f"{PHYS_DIR}/{PHYS_NAME}_epoch_{epoch}_object.ckpt"
+    m = torch.load(path, map_location=device, weights_only=False).to(device).eval()
+    m.requires_grad_(False)
+    assert getattr(m, "task_head", None) is not None, f"{path} has no task_head"
+    return m
+
+
+def compute_denorm(files=DATA_FILES, device: str = "cuda"):
+    """Per-dim z-score μ/σ over the training ConcatDataset, matching
+    utils.get_column_normalizer (NaN-row filtered per column, std ddof=1).
+    Returns μ, σ of shape (9,) ordered [proprio(8), drawer_qpos(1)]."""
+    mus, sds = [], []
+    for col, _dim in LABEL_COLS:
+        arr = np.concatenate([h5py.File(fp, "r")[col][:] for fp in files], 0)
+        arr = arr[~np.isnan(arr).any(1)]
+        mus.append(arr.mean(0))
+        sds.append(arr.std(0, ddof=1))
+    mu = torch.tensor(np.concatenate(mus), dtype=torch.float32, device=device)
+    sd = torch.tensor(np.concatenate(sds), dtype=torch.float32, device=device).clamp_min(1e-6)
+    return mu, sd
+
+
+def phys_decode(model, emb, mu, sd):
+    """task_head decode + de-normalize. emb (N,192) -> (eef_pos (N,3), drawer_qpos (N,))."""
+    real = model.task_head(emb) * sd + mu          # (N,9) real units
+    return real[:, :3], real[:, 8]
+
+
+def compute_action_norm(files=DATA_FILES, device: str = "cuda"):
+    """Per-dim z-score μ/σ of the 7-d raw action over the training ConcatDataset,
+    matching utils.get_column_normalizer (NaN-row filtered, std ddof=1). The model's
+    action_encoder was trained on NORMALIZED actions, so any rollout/eval must apply
+    this BEFORE stacking into the 35-d macro action. Returns μ, σ of shape (7,)."""
+    arr = np.concatenate([h5py.File(fp, "r")["action"][:] for fp in files], 0)
+    arr = arr[~np.isnan(arr).any(1)]
+    mu = torch.tensor(arr.mean(0), dtype=torch.float32, device=device)
+    sd = torch.tensor(arr.std(0, ddof=1), dtype=torch.float32, device=device).clamp_min(1e-6)
+    return mu, sd

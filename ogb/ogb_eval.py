@@ -1,3 +1,21 @@
+"""
+OGBScene 系列任务的 eval 入口（独立于通用 eval.py）。
+
+为什么单独一个脚本：
+  - SceneEnv.set_state 把 button_states 拆成两个 kwargs (button_state_0/_1)，
+    但 Hydra callable 机制只能整列传，无法在 YAML 里切片 button_states (2,)。
+  - 这里通过 monkey-patch 让 set_state 同时接受 button_states= 数组形式。
+  - 不污染 eval.py，避免影响其他环境的 eval。
+
+主流程与 eval.py 完全一致：
+  HDF5Dataset → 选起始帧 + goal_offset → world.evaluate_from_dataset
+  policy = WorldModelPolicy(CEMSolver(JEPA ckpt))
+
+用法：
+  MUJOCO_GL=egl EGL_DEVICE_ID=0 python ogb/ogb_eval.py \
+      --config-name=ogbscene_drawer policy=<ckpt 路径>
+"""
+
 import os
 
 os.environ["MUJOCO_GL"] = "egl"
@@ -8,14 +26,43 @@ from pathlib import Path
 import hydra
 import numpy as np
 import stable_pretraining as spt
+import stable_worldmodel as swm
 import torch
 from omegaconf import DictConfig, OmegaConf
 from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
-import stable_worldmodel as swm
+
+
+def _patch_scene_env_set_state():
+    """让 SceneEnv.set_state 多接受 button_states= 数组参数。
+
+    dataset 里 button_states 是 (2,) int64。Hydra callable 传整列时只能整体传，
+    包一层让它在 set_state 内部拆成 button_state_0 / button_state_1。
+    """
+    try:
+        from stable_worldmodel.envs.ogbench.scene_env import SceneEnv
+    except ImportError:
+        return
+    if getattr(SceneEnv.set_state, "_lewm_patched", False):
+        return
+    orig_set_state = SceneEnv.set_state
+
+    def set_state(self, qpos, qvel, button_states=None, **kwargs):
+        if button_states is not None:
+            arr = np.asarray(button_states).reshape(-1)
+            kwargs["button_state_0"] = int(arr[0])
+            kwargs["button_state_1"] = int(arr[1])
+        orig_set_state(self, qpos, qvel, **kwargs)
+
+    set_state._lewm_patched = True
+    SceneEnv.set_state = set_state
+
+
+_patch_scene_env_set_state()
+
 
 def img_transform(cfg):
-    transform = transforms.Compose(
+    return transforms.Compose(
         [
             transforms.ToImage(),
             transforms.ToDtype(torch.float32, scale=True),
@@ -23,12 +70,10 @@ def img_transform(cfg):
             transforms.Resize(size=cfg.eval.img_size),
         ]
     )
-    return transform
 
 
 def get_episodes_length(dataset, episodes):
     col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
-
     episode_idx = dataset.get_col_data(col_name)
     step_idx = dataset.get_col_data("step_idx")
     lengths = []
@@ -36,66 +81,61 @@ def get_episodes_length(dataset, episodes):
         lengths.append(np.max(step_idx[episode_idx == ep_id]) + 1)
     return np.array(lengths)
 
- 
-def get_dataset(cfg, dataset_name): # 拿数据集 
+
+def get_dataset(cfg, dataset_name):
     dataset_path = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
-    dataset = swm.data.HDF5Dataset(
+    return swm.data.HDF5Dataset(
         dataset_name,
         keys_to_cache=cfg.dataset.keys_to_cache,
         cache_dir=dataset_path,
     )
-    return dataset
 
-@hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
+
+@hydra.main(version_base=None, config_path="../config/eval", config_name="ogbscene_drawer")
 def run(cfg: DictConfig):
-    """Run evaluation of dinowm vs random policy."""
     assert (
         cfg.plan_config.horizon * cfg.plan_config.action_block <= cfg.eval.eval_budget
     ), "Planning horizon must be smaller than or equal to eval_budget"
 
-    # create world environment
-    cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
-    world = swm.World(**cfg.world, image_shape=(224, 224))
+    cfg.world.max_episode_steps = 100
+    # image_shape 必须和 dataset pixels 分辨率一致 (scene_drawer 是 64×64)。
+    # 否则 world.evaluate_from_dataset 里 video_frames 会被 dataset pixels 的 shape 误分配，
+    # env 后续渲染 224×224 时塞不进去。policy.transform 之后还是会 resize 到 224 给 encoder，
+    # 所以这里渲染分辨率改小不影响模型，只影响导出视频的清晰度。
+    world = swm.World(**cfg.world, image_shape=(64, 64))
 
-    # create the transform
     transform = {
         "pixels": img_transform(cfg),
         "goal": img_transform(cfg),
     }
 
     dataset = get_dataset(cfg, cfg.eval.dataset_name)
-    stats_dataset = dataset  # get_dataset(cfg, cfg.dataset.stats)
     col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
-    ep_indices, _ = np.unique(stats_dataset.get_col_data(col_name), return_index=True)
+    ep_indices, _ = np.unique(dataset.get_col_data(col_name), return_index=True)
 
     process = {}
     for col in cfg.dataset.keys_to_cache:
         if col in ["pixels"]:
             continue
         processor = preprocessing.StandardScaler()
-        col_data = stats_dataset.get_col_data(col)
+        col_data = dataset.get_col_data(col)
         col_data = col_data[~np.isnan(col_data).any(axis=1)]
         processor.fit(col_data)
         process[col] = processor
-
         if col != "action":
             process[f"goal_{col}"] = process[col]
 
-    # -- run evaluation
-    policy = cfg.get("policy", "random")
-
-    if policy != "random":
-        model = swm.policy.AutoCostModel(cfg.policy)
-        model = model.to("cuda")
-        model = model.eval()
+    policy_cfg = cfg.get("policy", "random")
+    if policy_cfg != "random":
+        model = swm.policy.AutoCostModel(policy_cfg)
+        model = model.to("cuda").eval()
         model.requires_grad_(False)
         model.interpolate_pos_encoding = True
-        config = swm.PlanConfig(**cfg.plan_config)
+        plan_config = swm.PlanConfig(**cfg.plan_config)
         solver = hydra.utils.instantiate(cfg.solver, model=model)
         policy = swm.policy.WorldModelPolicy(
-            solver=solver, config=config, process=process, transform=transform
+            solver=solver, config=plan_config, process=process, transform=transform
         )
-
     else:
         policy = swm.policy.RandomPolicy()
 
@@ -105,17 +145,13 @@ def run(cfg: DictConfig):
         else Path(__file__).parent
     )
 
-    # sample the episodes and the starting indices
+    # pick valid (episode, start) pairs: start + goal_offset_steps must be in-episode
     episode_len = get_episodes_length(dataset, ep_indices)
     max_start_idx = episode_len - cfg.eval.goal_offset_steps - 1
     max_start_idx_dict = {ep_id: max_start_idx[i] for i, ep_id in enumerate(ep_indices)}
-    # Map each dataset row’s episode_idx to its max_start_idx
-    col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
     max_start_per_row = np.array(
         [max_start_idx_dict[ep_id] for ep_id in dataset.get_col_data(col_name)]
     )
-
-    # remove all the lines of dataset for which dataset['step_idx'] > max_start_per_row
     valid_mask = dataset.get_col_data("step_idx") <= max_start_per_row
     valid_indices = np.nonzero(valid_mask)[0]
     print(valid_mask.sum(), "valid starting points found for evaluation.")
@@ -124,10 +160,7 @@ def run(cfg: DictConfig):
     random_episode_indices = g.choice(
         len(valid_indices) - 1, size=cfg.eval.num_eval, replace=False
     )
-
-    # sort increasingly to avoid issues with HDF5Dataset indexing
     random_episode_indices = np.sort(valid_indices[random_episode_indices])
-
     print(random_episode_indices)
 
     eval_episodes = dataset.get_row_data(random_episode_indices)[col_name]
@@ -146,22 +179,20 @@ def run(cfg: DictConfig):
         eval_budget=cfg.eval.eval_budget,
         episodes_idx=eval_episodes.tolist(),
         callables=OmegaConf.to_container(cfg.eval.get("callables"), resolve=True),
-        video_path=results_path/"results",
+        video_path=results_path / "results",
     )
     end_time = time.time()
-    
+
     print(metrics)
 
     results_path = results_path / cfg.output.filename
     results_path.parent.mkdir(parents=True, exist_ok=True)
 
     with results_path.open("a") as f:
-        f.write("\n")  # separate from previous runs
-
+        f.write("\n")
         f.write("==== CONFIG ====\n")
         f.write(OmegaConf.to_yaml(cfg))
         f.write("\n")
-
         f.write("==== RESULTS ====\n")
         f.write(f"metrics: {metrics}\n")
         f.write(f"evaluation_time: {end_time - start_time} seconds\n")
@@ -169,4 +200,3 @@ def run(cfg: DictConfig):
 
 if __name__ == "__main__":
     run()
-

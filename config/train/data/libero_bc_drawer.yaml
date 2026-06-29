@@ -1,0 +1,20 @@
+dataset:
+  num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
+  cache_dir: /home/yikang/git/le-wm/data
+  frameskip: 5
+  name: libero_bc_drawer_v2
+  keys_to_load:
+    - pixels
+    - eye_in_hand        # M1: 腕部相机, 进视觉 emb (与 pixels 同走图像预处理)
+    - action
+    - proprio            # 物理 aux 标签 (不进 emb); 被 transform 自动 z-score
+    - drawer_qpos        # 物理 aux 标签: 抽屉关节真值; 同样自动 z-score
+  keys_to_cache:
+    - action
+    - proprio
+    - drawer_qpos
+
+# 额外纵向拼接的原生数据集 (data/ 软链 -> hdd1). v2(5000)+perturb(5000)+spectrum(1000)=11000 ep.
+extra_datasets:
+  - name: libero_bc_drawer_perturb
+  - name: libero_bc_drawer_perturb_spectrum

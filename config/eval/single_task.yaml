@@ -1,0 +1,39 @@
+defaults:
+  - launcher: local
+  - solver: cem
+  - _self_
+
+world:
+  env_name: single-task-libero-demo-v0
+  num_envs: 1
+  max_episode_steps: ${eval.max_steps}
+  history_size: 3
+  frame_skip: 1
+  goal_conditioned: True
+  demo_hdf5_path: /root/autodl-tmp/LIBERO/datasets/libero_goal/open_drawer.hdf5
+  bddl_file_name: null
+  camera_heights: 128
+  camera_widths: 128
+
+dataset:
+  train_hdf5_path: /root/autodl-tmp/stable-wm/libero_goal.h5
+  keys_to_cache:
+    - action
+    - proprio
+
+seed: 42
+policy: /root/autodl-tmp/stable-wm/outputs/lewm_libero_goal_epoch_97
+
+plan_config:
+  horizon: 7
+  receding_horizon: 5
+  action_block: 1
+
+eval:
+  num_eval: 5
+  img_size: 224
+  dataset_name: libero_goal
+  goal_offset: 100
+  max_steps: 100
+  demo_ids: null
+  output_dir: single_task_open_drawer

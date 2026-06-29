@@ -12,11 +12,12 @@ class JEPA(nn.Module):
 
     def __init__(
         self,
-        encoder,
-        predictor,
-        action_encoder,
-        projector=None,
-        pred_proj=None,
+        encoder, # ViT-Tiny
+        predictor, # MLP
+        action_encoder, # Embedder
+        projector=None,  # ARPredictor
+        pred_proj=None, # MLP
+        task_head=None, # MLP: emb -> 物理量 (eef/drawer...), 联合训练塑形 latent
     ):
         super().__init__()
 
@@ -25,17 +26,28 @@ class JEPA(nn.Module):
         self.action_encoder = action_encoder
         self.projector = projector or nn.Identity()
         self.pred_proj = pred_proj or nn.Identity()
+        self.task_head = task_head  # None -> 不启用物理监督
 
     def encode(self, info):
         """Encode observations and actions into embeddings.
         info: dict with pixels and action keys
+
+        若 info 含 'eye_in_hand', 第二路腕部相机过同一个 encoder (共享权重),
+        两路 CLS 拼接后过 projector. emb 保持纯视觉 -> goal 一侧 (也含 eye_in_hand)
+        自动对称, 不破坏 goal-image cost.
         """
 
-        pixels = info['pixels'].float()
-        b = pixels.size(0)
-        pixels = rearrange(pixels, "b t ... -> (b t) ...") # flatten for encoding
-        output = self.encoder(pixels, interpolate_pos_encoding=True)
-        pixels_emb = output.last_hidden_state[:, 0]  # cls token
+        b = info['pixels'].size(0)
+
+        def _cls(px):
+            px = rearrange(px.float(), "b t ... -> (b t) ...")  # flatten for encoding
+            out = self.encoder(px, interpolate_pos_encoding=True)
+            return out.last_hidden_state[:, 0]  # cls token
+
+        pixels_emb = _cls(info['pixels'])
+        if "eye_in_hand" in info:
+            pixels_emb = torch.cat([pixels_emb, _cls(info["eye_in_hand"])], dim=-1)
+
         emb = self.projector(pixels_emb)
         info["emb"] = rearrange(emb, "(b t) d -> b t d", b=b)
 
@@ -54,6 +66,15 @@ class JEPA(nn.Module):
         preds = rearrange(preds, "(b t) d -> b t d", b=emb.size(0))
         return preds
 
+    def predict_state(self, emb):
+        """物理 task head: 从 emb 解码物理量 (归一化空间).
+        emb: (B, T, D) -> (B, T, P). 同一个 head 同时作用于 encoder 的 emb 和
+        predictor 的 pred_emb, 让两者的 latent 都把物理信息编码进去 (梯度回流).
+        """
+        b = emb.size(0)
+        out = self.task_head(rearrange(emb, "b t d -> (b t) d"))
+        return rearrange(out, "(b t) p -> b t p", b=b)
+
     ####################
     ## Inference only ##
     ####################
@@ -62,7 +83,7 @@ class JEPA(nn.Module):
         """Rollout the model given an initial info dict and action sequence.
         pixels: (B, S, T, C, H, W)
         action_sequence: (B, S, T, action_dim)
-         - S is the number of action plan samples
+         - S is the number of action plan samples 候选动作数量
          - T is the time horizon
         """
 
@@ -109,10 +130,14 @@ class JEPA(nn.Module):
 
         return info
 
-    def criterion(self, info_dict: dict):
+    def criterion(self, info_dict: dict): # 计算Mean Squared Error
         """Compute the cost between predicted embeddings and goal embeddings."""
-        pred_emb = info_dict["predicted_emb"]  # (B,S, T-1, dim)
-        goal_emb = info_dict["goal_emb"]  # (B, S, T, dim)
+        pred_emb = info_dict["predicted_emb"]  # (B, S, T-1, dim)
+        goal_emb = info_dict["goal_emb"]       # get_cost 路径下实际是 (B, T, dim)，缺 S 维
+
+        # 补回 S 维（占位 1），后面 expand_as 会广播到 pred_emb 的 S=num_samples
+        if goal_emb.ndim == 3:
+            goal_emb = goal_emb.unsqueeze(1)   # (B, 1, T, dim)
 
         goal_emb = goal_emb[..., -1:, :].expand_as(pred_emb)
 
